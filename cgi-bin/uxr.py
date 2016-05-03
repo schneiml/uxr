@@ -102,7 +102,7 @@ if "q" in form:
     for term in commands:
         if term['key'] == 'regexp:':
             print(len(files)) # debug
-            if term['sign'] == '-' and fresh:
+            if fresh:
                 files = set(run_search('.', files))
                 print(len(files))
             out = run_search(term['value'], files)
@@ -194,7 +194,7 @@ if "q" in form:
             else:
                 print('''<tr><td class="left-column"><a href="/cgi-bin/uxr.py?path=%s#%s">%s</a></td>'''
                     % (currentfile, p[0], p[0]))
-                print('<td><code>%s</code></td></tr>' % p[1])
+                print('<td><code id="line-%s" data-file="%s">%s</code></td></tr>' % (p[0], currentfile, p[1]))
 
     print('</tbody></table>')
     
