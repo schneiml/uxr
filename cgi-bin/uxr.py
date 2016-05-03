@@ -14,6 +14,49 @@ treename = "tree/"
 # but still enough that we don't need paging.
 limit = 1000
 
+
+# run a code search for RE pattern, optionally restricted to files.
+def run_search_ag(pattern, files, fresh):
+    agoptions = ["ag", "-l", "-f"]
+    if 'case' in form:
+        agoptions.append("-s")
+    else:
+        agoptions.append("-i")
+    agoptions.append(pattern)
+    agoptions.append("--")
+    if fresh:
+        agoptions.append('.')
+    else:
+        if len(files) == 0: return []
+        agoptions = agoptions + list(files)
+    ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE)
+    out = [s[:len(s)-1] for s in ag.stdout.readlines()]
+    ag.wait()
+    return out
+
+# same using Russ Cox  go codesearch (ignoring files)
+def run_search_csearch(pattern, files, fresh):
+    options = ["csearch", "-l"]
+    if 'case' not in form:
+        options.append("-i")
+    options.append(pattern)
+    search = subprocess.Popen(options, stdout = subprocess.PIPE, 
+                              env=dict(os.environ, CSEARCHINDEX='.cindex'))
+    rel = len(os.path.realpath("."))+1 # csearch outputs absolute path, assume all are local
+    out = [s[rel:len(s)-1] for s in search.stdout.readlines()]
+    search.wait()
+    return out
+
+run_search = run_search_csearch
+
+# list files for path-queries. Reading an index-file might be faster.
+def list_files():
+    agoptions = ["ag", "-l", "-f"]
+    ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE)
+    out = [s[:len(s)-1] for s in ag.stdout.readlines()]
+    ag.wait()
+    return out
+
 print("Content-Type: text/html")    # HTML is following
 print()                             # blank line, end of headers
 
@@ -78,47 +121,30 @@ if "q" in form:
     pwd = os.path.realpath('.')
     os.chdir(treename)
     
-    # run a code search for RE pattern, optionally restricted to files.
-    def run_search(pattern, files):
-        agoptions = ["ag", "-l", "-f"]
-        if 'case' in form:
-            agoptions.append("-s")
-        else:
-            agoptions.append("-i")
-        agoptions.append(pattern)
-        agoptions.append("--")
-        if fresh:
-            agoptions.append('.')
-        else:
-            if len(files) == 0: return []
-            agoptions = agoptions + list(files)
-        ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE)
-        out = [s[:len(s)-1] for s in ag.stdout.readlines()]
-        ag.wait()
-        return out
-        
     # we execute commands in order. Doing all paths first or sth. might be better
     # (the output should not depend on order) but csearch does not allow it
     for term in commands:
         if term['key'] == 'regexp:':
             print(len(files)) # debug
-            if fresh:
-                files = set(run_search('.', files))
-                print(len(files))
-            out = run_search(term['value'], files)
+            out = run_search(term['value'], files, fresh)
             if term['sign'] == '-':
+                if fresh:
+                    files = set(list_files())
                 files.difference_update(out)
             else:
-                files.intersection_update(out)
+                if fresh:
+                    files = set(out)
+                else:
+                    files.intersection_update(out)
                 allre.append(term['value'])
             term['handled'] = True
             fresh = False
             print(len(files))
+            
         if term['key'] == 'wildcard:':
             print(len(files))
             if fresh:
-                files = set(run_search('.', files))
-                print(len(files))
+                files = set(list_files())
             p = bytes(term['value'], "UTF-8")
             if term['sign'] == '-':
                 files = {f for f in files if not fnmatch.fnmatch(f, p)}
@@ -133,10 +159,7 @@ if "q" in form:
     for term in commands:
         if 'handled' not in term:
             print("<p><b>Option '%s' not understood.</b></p>" % term['key'])
-            
-    if len(files) == 0:
-        print("<p><b>No matching files.</b></p>")
-        
+
     # Result table with all the DXR invisible mess
     print('''<table class="results">
       <caption class="visually-hidden">Query matches</caption>
@@ -158,7 +181,7 @@ if "q" in form:
                 <td><a href="/cgi-bin/uxr.py?path=%s">%s</a></td>
                 </tr>''' % (f, f))
     # else we run a final ag to get the highlighted matches. Will always use ag.
-    else:
+    elif len(files) > 0:
         agoptions = ["ag", "-f", "--color",  "--color-match=X", "--heading"]
         if 'case' in form:
             agoptions.append("-s")
@@ -195,6 +218,8 @@ if "q" in form:
                 print('''<tr><td class="left-column"><a href="/cgi-bin/uxr.py?path=%s#%s">%s</a></td>'''
                     % (currentfile, p[0], p[0]))
                 print('<td><code id="line-%s" data-file="%s">%s</code></td></tr>' % (p[0], currentfile, p[1]))
+    else:
+        print("<p><b>No matching files.</b></p>")
 
     print('</tbody></table>')
     
