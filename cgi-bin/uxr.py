@@ -47,15 +47,21 @@ def run_search_csearch(pattern, files, fresh):
     search.wait()
     return out
 
-run_search = run_search_csearch
-
 # list files for path-queries. Reading an index-file might be faster.
-def list_files():
+def list_files_ag():
     agoptions = ["ag", "-l", "-f"]
     ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE)
     out = [s[:len(s)-1] for s in ag.stdout.readlines()]
     ag.wait()
     return out
+
+# needs and index file like 'ag -f -l > .files'
+def list_files_read():
+    return [bytes(s[:len(s)-1], "UTF-8") for s in open(".files", "r")]
+
+# choose backends here.
+run_search = run_search_csearch
+list_files = list_files_read
 
 print("Content-Type: text/html")    # HTML is following
 print()                             # blank line, end of headers
