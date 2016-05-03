@@ -115,6 +115,24 @@ if "q" in form:
         if term['key'] == 'path:':
             term['value'] = '*' + term['value'] + '*'
             term['key'] = 'wildcard:'
+            
+    # Result table with all the DXR invisible mess
+    print('''<table class="results">
+      <caption class="visually-hidden">Query matches</caption>
+      <thead class="visually-hidden">
+          <th scope="col">Line</th>
+          <th scope="col">Code Snippet</th>
+      </thead>
+      <tbody>''')
+    
+    def printfilename(currentfile):
+        parts = currentfile.split('/')
+        print('''<tr class="result-head">
+        <td class="left-column"><div class="unknown icon-container"></div></td>
+        <td>''')
+        print('<span class="path-separator">/</span>'.join(['<a href="/cgi-bin/uxr.py?path=%s">%s</a>' 
+                            % ('/'.join(parts[:i+1]), parts[i]) for i in range(0, len(parts))]))
+        print('</td></tr>')
     
     # the main code search evaluator.
     # this keeps track of all files that match as of now.
@@ -166,26 +184,14 @@ if "q" in form:
         if 'handled' not in term:
             print("<p><b>Option '%s' not understood.</b></p>" % term['key'])
 
-    # Result table with all the DXR invisible mess
-    print('''<table class="results">
-      <caption class="visually-hidden">Query matches</caption>
-      <thead class="visually-hidden">
-          <th scope="col">Line</th>
-          <th scope="col">Code Snippet</th>
-      </thead>
-      <tbody>''')
-    
-    # if there was nt non-negated RE, we have no text to show, just names
+    # if there was no non-negated RE, we have no text to show, just names
     if len(allre) == 0:
         ctr = limit
         for f in sorted(files):
             ctr = ctr - 1
             if ctr == 0: break
             f = f.decode()
-            print('''<tr class="result-head">
-                <td class="left-column"><div class="unknown icon-container"></div></td>
-                <td><a href="/cgi-bin/uxr.py?path=%s">%s</a></td>
-                </tr>''' % (f, f))
+            printfilename(f)
     # else we run a final ag to get the highlighted matches. Will always use ag.
     elif len(files) > 0:
         agoptions = ["ag", "-f", "--color",  "--color-match=X", "--heading"]
@@ -195,7 +201,7 @@ if "q" in form:
             agoptions.append("-i")
         agoptions.append("|".join(allre))
         agoptions.append("--")
-        agoptions  = agoptions + sorted(files)
+        agoptions  = agoptions + sorted(files)[:limit] # limit here for evil cases
         ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE)
         # we requested color output, and now "parse" the escape sequences. Buggy
         # on multi-line matches.
@@ -213,13 +219,7 @@ if "q" in form:
             p = l.split(':', maxsplit=1)
             if len(p) == 1:
                 currentfile = p[0]
-                parts = currentfile.split('/')
-                print('''<tr class="result-head">
-                <td class="left-column"><div class="unknown icon-container"></div></td>
-                <td>''')
-                print('<span class="path-separator">/</span>'.join(['<a href="/cgi-bin/uxr.py?path=%s">%s</a>' 
-                                  % ('/'.join(parts[:i+1]), parts[i]) for i in range(0, len(parts))]))
-                print('</td></tr>')
+                printfilename(currentfile)
             else:
                 print('''<tr><td class="left-column"><a href="/cgi-bin/uxr.py?path=%s#%s">%s</a></td>'''
                     % (currentfile, p[0], p[0]))
