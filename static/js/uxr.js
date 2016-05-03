@@ -9,29 +9,32 @@ $(function() {
     $(".content code").each(function(i, el) {
         var line = el.id.match(/line-([0-9]+)/)[1]
         var html = el.innerHTML
-        var out = ""
-        var intag = false
-        var ina = false
-        var wordchar = /[a-zA-Z0-9_]/
-        for (var i = 0; i < html.length; i++) {
-            if(!intag) {
-                if (wordchar.test(html[i])) {
-                    if (!ina) out += '<a class="range" data-start=":' + line + ':' + i + '">'
-                    ina = true
-                } else {
-                    if(ina) out += '</a>'
-                    ina = false
-                }
-                if (html[i] == '<' || html[i] == '&') {
-                    intag = true
-                }
-            } else {
-                if (html[i] == '>' || html[i] == ';') {
-                    intag = false
-                }
-            }
-            out += html[i]
+        // quoted things, identifiers including . or ->, namespaces (including plain words) and <...> as long as it is not fancy
+        var interesting = /"[^"]"|-&gt;\w+|\.\w+|&lt;[\w/.]+&gt;|\w\w\w+/g
+        var inner = /[\w][\w/.: ]+[\w]/ // this is what we really care about inside the above
+        var current = 0
+        out = ''
+        while ((match = interesting.exec(html)) != null) {
+            var i = match.index
+            var submatch = inner.exec(match[0])
+            if (!submatch) continue
+            i += submatch.index
+            var j = i + submatch[0].length
+            out += html.substr(current, i - current)
+            current = i
+            
+            var offset = 0
+            var current_str = html.substr(0, current)
+            var tags = /<[^>]*>|&[^;]*;/g
+            while ((tag = tags.exec(current_str)) != null) offset += tag[0].length - 1
+            
+            out += '<a class="range" data-start=":' + line + ':' + (i-offset) + '">'
+            out += html.substr(current, j - current)
+            current = j
+            out += '</a>'
         }
+        out += html.substr(current, html.length - current)
+            
         el.innerHTML = out
     });
     $("a.range").click(function(event) {
