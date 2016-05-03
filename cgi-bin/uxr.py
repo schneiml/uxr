@@ -67,9 +67,19 @@ if "q" in form:
             term['value'] = '*' + term['value'] + '*'
             term['key'] = 'wildcard:'
     
+    # the main code search evaluator.
+    # this keeps track of all files that match as of now.
     files = set()
+    # if true, empty set means "all".
     fresh = True
-    def run_ag(pattern, files):
+    # list of all non-negated REs, to use for final grep.
+    allre = []
+    
+    pwd = os.path.realpath('.')
+    os.chdir(treename)
+    
+    # run a code search for RE pattern, optionally restricted to files.
+    def run_search(pattern, files):
         agoptions = ["ag", "-l", "-f"]
         if 'case' in form:
             agoptions.append("-s")
@@ -86,21 +96,20 @@ if "q" in form:
         out = [s[:len(s)-1] for s in ag.stdout.readlines()]
         ag.wait()
         return out
-    
-    os.chdir(treename)
-    allre = []
         
+    # we execute commands in order. Doing all paths first or sth. might be better
+    # (the output should not depend on order) but csearch does not allow it
     for term in commands:
         if term['key'] == 'regexp:':
-            print(len(files))
+            print(len(files)) # debug
             if term['sign'] == '-' and fresh:
-                files = set(run_ag('.', files))
+                files = set(run_search('.', files))
                 print(len(files))
-            out = run_ag(term['value'], files)
+            out = run_search(term['value'], files)
             if term['sign'] == '-':
                 files.difference_update(out)
             else:
-                files = set(out)
+                files.intersection_update(out)
                 allre.append(term['value'])
             term['handled'] = True
             fresh = False
@@ -108,7 +117,7 @@ if "q" in form:
         if term['key'] == 'wildcard:':
             print(len(files))
             if fresh:
-                files = set(run_ag('.', files))
+                files = set(run_search('.', files))
                 print(len(files))
             p = bytes(term['value'], "UTF-8")
             if term['sign'] == '-':
@@ -119,12 +128,16 @@ if "q" in form:
             fresh = False
             print(len(files))
     
+    # we set a 'handled' flag on all commands used, so if any command does not 
+    # have it set now this is an error.
     for term in commands:
         if 'handled' not in term:
             print("<p><b>Option '%s' not understood.</b></p>" % term['key'])
+            
     if len(files) == 0:
         print("<p><b>No matching files.</b></p>")
         
+    # Result table with all the DXR invisible mess
     print('''<table class="results">
       <caption class="visually-hidden">Query matches</caption>
       <thead class="visually-hidden">
@@ -133,6 +146,7 @@ if "q" in form:
       </thead>
       <tbody>''')
     
+    # if there was nt non-negated RE, we have no text to show, just names
     if len(allre) == 0:
         ctr = limit
         for f in sorted(files):
@@ -143,6 +157,7 @@ if "q" in form:
                 <td class="left-column"><div class="unknown icon-container"></div></td>
                 <td><a href="/cgi-bin/uxr.py?path=%s">%s</a></td>
                 </tr>''' % (f, f))
+    # else we run a final ag to get the highlighted matches. Will always use ag.
     else:
         agoptions = ["ag", "-f", "--color",  "--color-match=X", "--heading"]
         if 'case' in form:
@@ -153,6 +168,8 @@ if "q" in form:
         agoptions.append("--")
         agoptions  = agoptions + sorted(files)
         ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE)
+        # we requested color output, and now "parse" the escape sequences. Buggy
+        # on multi-line matches.
         colorre = re.compile('\033\[[0-9;]*m|\033\[K')
         matchre = re.compile('\033\[Xm([^\033]*)\033\[0m')
         
@@ -167,10 +184,13 @@ if "q" in form:
             p = l.split(':', maxsplit=1)
             if len(p) == 1:
                 currentfile = p[0]
+                parts = currentfile.split('/')
                 print('''<tr class="result-head">
                 <td class="left-column"><div class="unknown icon-container"></div></td>
-                <td><a href="/cgi-bin/uxr.py?path=%s">%s</a></td>
-                </tr>''' % (currentfile, currentfile))
+                <td>''')
+                print('<span class="path-separator">/</span>'.join(['<a href="/cgi-bin/uxr.py?path=%s">%s</a>' 
+                                  % ('/'.join(parts[:i+1]), parts[i]) for i in range(0, len(parts))]))
+                print('</td></tr>')
             else:
                 print('''<tr><td class="left-column"><a href="/cgi-bin/uxr.py?path=%s#%s">%s</a></td>'''
                     % (currentfile, p[0], p[0]))
