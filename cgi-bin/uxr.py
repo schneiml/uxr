@@ -8,6 +8,8 @@ import fnmatch
 
 # Where the code lives, relative to the cgi $PWD
 treename = "tree/"
+# same for the index files
+indexname = "index/"
 # the path '/cgi-bin/uxr.py' to this script is hardcded in many places.
 # too much trouble to make it variable, but s|...|...|g should do
 # Maximum number of things to print in the result. 1k should be ok for a browser
@@ -17,11 +19,7 @@ limit = 1000
 
 # run a code search for RE pattern, optionally restricted to files.
 def run_search_ag(pattern, files, fresh):
-    agoptions = ["ag", "-l", "-f"]
-    if 'case' in form:
-        agoptions.append("-s")
-    else:
-        agoptions.append("-i")
+    agoptions = ["ag", "-l", "-f", caseopt]
     agoptions.append(pattern)
     agoptions.append("--")
     if fresh:
@@ -37,7 +35,7 @@ def run_search_ag(pattern, files, fresh):
 # same using Russ Cox  go codesearch (ignoring files)
 def run_search_csearch(pattern, files, fresh):
     options = ["csearch", "-l"]
-    if 'case' not in form:
+    if caseopt == '-i':
         options.append("-i")
     options.append(pattern)
     search = subprocess.Popen(options, stdout = subprocess.PIPE, 
@@ -59,6 +57,17 @@ def list_files_ag():
 def list_files_read():
     return [bytes(s[:len(s)-1], "UTF-8") for s in open(".files", "r")]
 
+# very similar to normal search but different output
+def run_index_search(pattern):
+    options = ["csearch"]
+    if caseopt == '-i':
+        options.append("-i")
+    options.append(pattern)
+    search = subprocess.Popen(options, stdout = subprocess.PIPE, 
+                              env=dict(os.environ, CSEARCHINDEX='.cindex'))
+    out = {s.split(b':', 1)[1] for s in search.stdout.readlines()}
+    return out
+
 # choose backends here.
 run_search = run_search_csearch
 list_files = list_files_read
@@ -68,7 +77,12 @@ print()                             # blank line, end of headers
 
 form = cgi.FieldStorage()
 # the noframe option is if we want ajax-based loading... not sure.
-noframe = "noframe" in form
+noframe = "noframe" in form    
+
+if 'case' in form:
+    caseopt = "-s"
+else:
+    caseopt = "-i"
 
 # dump out the first part of the html template.
 if not noframe:
@@ -115,6 +129,10 @@ if "q" in form:
         if term['key'] == 'path:':
             term['value'] = '*' + term['value'] + '*'
             term['key'] = 'wildcard:'
+        if term['key'][:-1] in {'loc', 'defloc', 'qualname', 'type', 'name'}:
+            term['value'] = ',%s,"[^"]*%s[0-9:]*"' % \
+                            (term['key'][:-1], re.escape(term['value']))
+            term['key'] = 'index:'
             
     # Result table with all the DXR invisible mess
     print('''<table class="results">
@@ -133,6 +151,41 @@ if "q" in form:
         print('<span class="path-separator">/</span>'.join(['<a href="/cgi-bin/uxr.py?path=%s">%s</a>' 
                             % ('/'.join(parts[:i+1]), parts[i]) for i in range(0, len(parts))]))
         print('</td></tr>')
+        
+    # we request color output from ag, and then "parse" the escape sequences. 
+    # Buggy on multi-line matches.
+    colorre = re.compile('\033\[[0-9;]*m|\033\[K')
+    matchre = re.compile('\033\[Xm([^\033]*)\033\[0m\033\[K')
+
+    # first we query the index
+    pwd = os.path.realpath('.')
+    os.chdir(indexname)
+    fresh = True
+    results = {}
+    for term in commands:
+        if term['key'] == 'index:':
+            # if this is the first pattern we go to the index
+            if fresh:
+                results = run_index_search(term['value'])
+            print("Term '%s' %d res\n" % (term['value'], len(results)))
+            fresh = False
+            term['handled'] = True
+            # else just use ag to select lines and highlight
+            agoptions = ["ag", "-f", "--color",  "--color-match=X", caseopt, '--', term['value']]
+            ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE, stdin = subprocess.PIPE)
+            res = ag.communicate(b''.join(results))
+            results = set(res[0].splitlines(keepends=True))
+            
+    if len(results) > 0: printfilename(indexname)
+    ctr = limit
+    for l in sorted(results):
+        ctr = ctr - 1
+        if ctr == 0: break
+        l = l[:-1].decode()
+        l = re.sub(matchre, "<b>\\1</b>", l)
+        print('''<tr><td class="left-column"></td>''')
+        print('<td><code>%s</code></td></tr>' % l)
+        
     
     # the main code search evaluator.
     # this keeps track of all files that match as of now.
@@ -142,7 +195,7 @@ if "q" in form:
     # list of all non-negated REs, to use for final grep.
     allre = []
     
-    pwd = os.path.realpath('.')
+    os.chdir(pwd)
     os.chdir(treename)
     
     # we execute commands in order. Doing all paths first or sth. might be better
@@ -194,19 +247,11 @@ if "q" in form:
             printfilename(f)
     # else we run a final ag to get the highlighted matches. Will always use ag.
     elif len(files) > 0:
-        agoptions = ["ag", "-f", "--color",  "--color-match=X", "--heading"]
-        if 'case' in form:
-            agoptions.append("-s")
-        else:
-            agoptions.append("-i")
+        agoptions = ["ag", "-f", "--color",  "--color-match=X", "--heading", caseopt]
         agoptions.append("|".join(allre))
         agoptions.append("--")
         agoptions  = agoptions + sorted(files)[:limit] # limit here for evil cases
         ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE)
-        # we requested color output, and now "parse" the escape sequences. Buggy
-        # on multi-line matches.
-        colorre = re.compile('\033\[[0-9;]*m|\033\[K')
-        matchre = re.compile('\033\[Xm([^\033]*)\033\[0m')
         
         ctr = limit
         for s in ag.stdout:
