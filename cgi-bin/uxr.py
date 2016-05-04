@@ -175,16 +175,23 @@ if "q" in form:
             ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE, stdin = subprocess.PIPE)
             res = ag.communicate(b''.join(results))
             results = set(res[0].splitlines(keepends=True))
+             
+    # matching the index csv files... easy except for the escape hell.
+    # also carry over html tags if present.
+    show = {'loc', 'defloc', 'qualname', 'type', 'name', 'kind'}
             
     if len(results) > 0: printfilename(indexname)
     ctr = limit
     for l in sorted(results):
         ctr = ctr - 1
         if ctr == 0: break
-        l = l[:-1].decode()
+        l = cgi.escape(l[:-1].decode())
         l = re.sub(matchre, "<b>\\1</b>", l)
+        kv = [m.groupdict() for m in kvpair.finditer(l)]
+        kv = [(e['first'], e['value']) for e in kv if e['key'] in show]
+        out = "\n".join('%s:%s' % pair for pair in kv)
         print('''<tr><td class="left-column"></td>''')
-        print('<td><code>%s</code></td></tr>' % l)
+        print('<td><code>%s</code></td></tr>' % out)
         
     
     # the main code search evaluator.
