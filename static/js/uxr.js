@@ -16,9 +16,9 @@ $(function() {
         var line = el.id.match(/line-([0-9]+)/)
         if (line) line = line[1]
             
-        var html = el.innerHTML
+        var html = el.innerHTML.replace("&amp;", "&#38;")
         
-        var interesting = /(\w+:)?"[^"]*"|&lt;[\w/.:]+&gt;|\w\w\w+/g
+        var interesting = /(\w+:)?"[^"]*"|&lt;[\w/.:]+&gt;|\w\w[\w/]+/g
         
         var current = 0
         out = ''
