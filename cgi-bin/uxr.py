@@ -170,31 +170,55 @@ if "q" in form:
             print("Term '%s' %d res\n" % (term['value'], len(results)))
             fresh = False
             term['handled'] = True
-            # else just use ag to select lines and highlight
-            agoptions = ["ag", "-f", "--color",  "--color-match=X", caseopt, '--', term['value']]
+            # else just use ag to select lines
+            agoptions = ["ag", "-f", caseopt, '--', term['value']]
             ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE, stdin = subprocess.PIPE)
             res = ag.communicate(b''.join(results))
             results = set(res[0].splitlines(keepends=True))
+            
+    os.chdir(pwd)
              
     # matching the index csv files... easy except for the escape hell.
     # also carry over html tags if present.
-    kvpair = re.compile(''',(?P<first>(<\w+>)*(?P<key>\w+)),(?P<value>"[^"]*"(<[\w/]+>)*)''')
-    show = {'loc', 'defloc', 'qualname', 'type', 'name', 'kind'}
-            
-    ctr = limit
+    kvpair = re.compile(''',(?P<key>\w+),(?P<value>"[^"]*")''')
+    show = {'loc', 'defloc', 'qualname', 'type'}
+
+    items = set()
     for l in sorted(results):
-        printfilename(indexname)
+        
+        l = cgi.escape(l[:-1].decode())
+        kv = [m.groupdict() for m in kvpair.finditer(l)]
+        kv = tuple(sorted((e['key'], e['value']) for e in kv if e['key'] in show))
+        items.add(kv)
+                
+    # now pretty-print the results
+    ctr = limit
+    for kv in items:
         ctr = ctr - 1
         if ctr == 0: break
-        l = cgi.escape(l[:-1].decode())
-        l = re.sub(matchre, "<b>\\1</b>", l)
-        kv = [m.groupdict() for m in kvpair.finditer(l)]
-        kv = [(e['first'], e['value']) for e in kv if e['key'] in show]
-        out = "\n".join('%s:%s' % pair for pair in kv)
-        print('''<tr><td class="left-column"></td>''')
-        print('<td><code>%s</code></td></tr>' % out)
+        out = []
+        title = False
+        for k, v in kv:
+            out.append('''<tr><td class="left-column"></td><td><code>%s:%s</code></td></tr>''' % (k,v))
+            if k in ['loc', 'defloc']:
+                try:
+                    parts = v[1:-1].split(':')
+                    f = parts[0]
+                    l = int(parts[1])
+                    txt = open(treename + f).readlines()[l-1]
+                    pos = int(parts[2])
+                    out.append('''<tr><td class="left-column"><a href="?path=%s#%d">%d</a></td><td><code data-file="%s" id="line-%d">%s<b>%s</b></code></td></tr>''' % (f, l, l, f, l, txt[:pos], txt[pos:]))
+                    if k == 'loc':
+                        printfilename(f)
+                        title = True
+                except:
+                    pass
+        if not title:
+            printfilename(indexname)
+        for l in out:
+            print(l)
+                
         
-    
     # the main code search evaluator.
     # this keeps track of all files that match as of now.
     files = set()

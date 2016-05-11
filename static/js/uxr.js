@@ -7,7 +7,7 @@ $(function() {
     }    
     
     $(".content code").each(function(i, el) {
-        var file = document.location.href.match(/path=[^&]*\/([^&]+)/)
+        var file = document.location.href.match(/path=([^&]*\/[^#&]+)/)
         if (!file) file = $(el).attr("data-file")
         else file = file[1]
             
@@ -33,10 +33,8 @@ $(function() {
             out += html.substr(current, i - current)
             current = i
             
-            var offset = 0
             var current_str = html.substr(0, current)
-            var tags = /<[^>]*>|&[^;]*;/g
-            while ((tag = tags.exec(current_str)) != null) offset += tag[0].length - 1
+            var offset = current_str.length - $("<div>").html(current_str).text().length
             
             if (line) {
                 var tag = '<a class="range" href="' + uxr + '?q=loc:' + file + ':' + line + ':' + (i-offset) + " " + encodeURIComponent(txt) + '">'
