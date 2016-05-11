@@ -93,30 +93,18 @@ class PreprocThunk : public PPCallbacks {
   IndexConsumer *real;
 public:
   PreprocThunk(IndexConsumer *c) : real(c) {}
-#if CLANG_AT_LEAST(3, 3)
+
   void MacroDefined(const Token &tok, const MacroDirective *md) override;
-  void MacroExpands(const Token &tok, const MacroDirective *md, SourceRange range,
+  void MacroExpands(const Token &tok, const MacroDefinition &md, SourceRange range,
                     const MacroArgs *ma) override;
-  void MacroUndefined(const Token &tok, const MacroDirective *md) override;
-#if CLANG_AT_LEAST(3, 4)
-  void Defined(const Token &tok, const MacroDirective *md,
+  void MacroUndefined(const Token &tok, const MacroDefinition &md) override;
+  void Defined(const Token &tok, const MacroDefinition &md,
                SourceRange range) override;
-#else
-  void Defined(const Token &tok, const MacroDirective *md) override;
-#endif
   void Ifdef(SourceLocation loc, const Token &tok,
-             const MacroDirective *md) override;
+             const MacroDefinition &md) override;
   void Ifndef(SourceLocation loc, const Token &tok,
-              const MacroDirective *md) override;
-#else
-  void MacroDefined(const Token &MacroNameTok, const MacroInfo *MI) override;
-  void MacroExpands(const Token &MacroNameTok, const MacroInfo *MI,
-                    SourceRange Range) override;
-  void MacroUndefined(const Token &tok, const MacroInfo *MI) override;
-  void Defined(const Token &tok) override;
-  void Ifdef(SourceLocation loc, const Token &tok) override;
-  void Ifndef(SourceLocation loc, const Token &tok) override;
-#endif
+              const MacroDefinition &md) override;
+
   void InclusionDirective(  // same in 3.2 and 3.3
       SourceLocation hashLoc,
       const Token &includeTok,
@@ -139,7 +127,7 @@ private:
   std::ostream *out;
   std::map<std::string, FileInfoPtr> relmap;
   LangOptions &features;
-  DiagnosticConsumer *inner;
+  std::unique_ptr<DiagnosticConsumer> inner;
   static std::string tmpdir;  // Place to save all the csv files to
 
   const FileInfoPtr &getFileInfo(const std::string &filename) {
@@ -173,7 +161,7 @@ public:
 
     inner = ci.getDiagnostics().takeClient();
     ci.getDiagnostics().setClient(this, false);
-    ci.getPreprocessor().addPPCallbacks(new PreprocThunk(this));
+    ci.getPreprocessor().addPPCallbacks(std::unique_ptr<PPCallbacks>(new PreprocThunk(this)));
   }
 
 #if CLANG_AT_LEAST(3, 3)
@@ -1176,54 +1164,29 @@ public:
 
 };
 
-#if CLANG_AT_LEAST(3, 3)
 void PreprocThunk::MacroDefined(const Token &tok, const MacroDirective *md) {
   real->MacroDefined(tok, md->getMacroInfo());
 }
-void PreprocThunk::MacroExpands(const Token &tok, const MacroDirective *md,
+void PreprocThunk::MacroExpands(const Token &tok, const MacroDefinition &md,
                                 SourceRange range, const MacroArgs *ma) {
-  real->MacroExpands(tok, md->getMacroInfo(), range);
+  real->MacroExpands(tok, md.getMacroInfo(), range);
 }
-void PreprocThunk::MacroUndefined(const Token &tok, const MacroDirective *md) {
-  real->MacroUndefined(tok, md->getMacroInfo());
+void PreprocThunk::MacroUndefined(const Token &tok, const MacroDefinition &md) {
+  real->MacroUndefined(tok, md.getMacroInfo());
 }
-#if CLANG_AT_LEAST(3, 4)
-void PreprocThunk::Defined(const Token &tok, const MacroDirective *md,
+void PreprocThunk::Defined(const Token &tok, const MacroDefinition &md,
                            SourceRange) {
-#else
-void PreprocThunk::Defined(const Token &tok, const MacroDirective *md) {
-#endif
-  real->Defined(tok, md->getMacroInfo());
+  real->Defined(tok, md.getMacroInfo());
 }
 void PreprocThunk::Ifdef(SourceLocation loc, const Token &tok,
-                         const MacroDirective *md) {
-  real->Ifdef(loc, tok, md->getMacroInfo());
+                         const MacroDefinition &md) {
+  real->Ifdef(loc, tok, md.getMacroInfo());
 }
 void PreprocThunk::Ifndef(SourceLocation loc, const Token &tok,
-                          const MacroDirective *md) {
-  real->Ifndef(loc, tok, md->getMacroInfo());
+                          const MacroDefinition &md) {
+  real->Ifndef(loc, tok, md.getMacroInfo());
 }
-#else
-void PreprocThunk::MacroDefined(const Token &tok, const MacroInfo *MI) {
-  real->MacroDefined(tok, MI);
-}
-void PreprocThunk::MacroExpands(const Token &tok, const MacroInfo *MI,
-                                SourceRange Range) {
-  real->MacroExpands(tok, MI, Range);
-}
-void PreprocThunk::MacroUndefined(const Token &tok, const MacroInfo *MI) {
-  real->MacroUndefined(tok, MI);
-}
-void PreprocThunk::Defined(const Token &tok) {
-  real->Defined(tok, nullptr);
-}
-void PreprocThunk::Ifdef(SourceLocation loc, const Token &tok) {
-  real->Ifdef(loc, tok, nullptr);
-}
-void PreprocThunk::Ifndef(SourceLocation loc, const Token &tok) {
-  real->Ifndef(loc, tok, nullptr);
-}
-#endif
+
 void PreprocThunk::InclusionDirective(  // same in 3.2 and 3.3
     SourceLocation hashLoc,
     const Token &includeTok,
@@ -1241,9 +1204,9 @@ void PreprocThunk::InclusionDirective(  // same in 3.2 and 3.3
 // Our plugin entry point.
 class DXRIndexAction : public PluginASTAction {
 protected:
-  ASTConsumer *CreateASTConsumer(CompilerInstance &CI,
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
                                  llvm::StringRef f) override {
-    return new IndexConsumer(CI);
+    return std::unique_ptr<ASTConsumer> (new IndexConsumer(CI));
   }
 
   bool ParseArgs(const CompilerInstance &CI,
