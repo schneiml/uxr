@@ -100,7 +100,7 @@ if "q" in form:
     # inivisible tag that allows the client js to refill the form. We could also
     # fill the form in the template output above, but we cannot for obvious reasons.
     print('<span id="oldquery" data-query="%s" data-case="%s"></span>' 
-          % (query, str('case' in form).lower()))
+          % (query.replace('"', "&quot;"), str('case' in form).lower()))
     
     # monster RE to parse the query syntax. It's fine, the syntax is regular.
     # handling escaped ' or " is nontrivial but should work.
@@ -178,11 +178,12 @@ if "q" in form:
              
     # matching the index csv files... easy except for the escape hell.
     # also carry over html tags if present.
+    kvpair = re.compile(''',(?P<first>(<\w+>)*(?P<key>\w+)),(?P<value>"[^"]*"(<[\w/]+>)*)''')
     show = {'loc', 'defloc', 'qualname', 'type', 'name', 'kind'}
             
-    if len(results) > 0: printfilename(indexname)
     ctr = limit
     for l in sorted(results):
+        printfilename(indexname)
         ctr = ctr - 1
         if ctr == 0: break
         l = cgi.escape(l[:-1].decode())
