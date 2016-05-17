@@ -143,11 +143,11 @@ if "q" in form:
       </thead>
       <tbody>''')
     
-    def printfilename(currentfile):
+    def printfilename(currentfile, label=""):
         parts = currentfile.split('/')
         print('''<tr class="result-head">
-        <td class="left-column"><div class="unknown icon-container"></div></td>
-        <td>''')
+        <td class="left-column"><div class="unknown icon-container">%s</div></td>
+        <td>''' % label)
         print('<span class="path-separator">/</span>'.join(['<a href="/cgi-bin/uxr.py?path=%s">%s</a>' 
                             % ('/'.join(parts[:i+1]), parts[i]) for i in range(0, len(parts))]))
         print('</td></tr>')
@@ -180,25 +180,30 @@ if "q" in form:
              
     # matching the index csv files... easy except for the escape hell.
     # also carry over html tags if present.
-    kvpair = re.compile(''',(?P<key>\w+),(?P<value>"[^"]*")''')
-    show = {'loc', 'defloc', 'qualname', 'type'}
+    kvpair = re.compile('''(?P<sort>\w*),(?P<key>\w+),(?P<value>"[^"]*")''')
+    show = {'loc', 'defloc', 'qualname', 'type', 'sort'}
 
     items = set()
     for l in sorted(results):
-        
         l = cgi.escape(l[:-1].decode())
         kv = [m.groupdict() for m in kvpair.finditer(l)]
-        kv = tuple(sorted((e['key'], e['value']) for e in kv if e['key'] in show))
+        idxtype = [('sort', kv[0]['sort'])]
+        kv = tuple(idxtype + sorted((e['key'], e['value']) for e in kv if e['key'] in show))
         items.add(kv)
                 
     # now pretty-print the results
+    currentfile = ""
     ctr = limit
-    for kv in items:
+    for kv in sorted(items):
         ctr = ctr - 1
         if ctr == 0: break
         out = []
         title = False
+        idxsort = ""
         for k, v in kv:
+            if k == 'sort':
+                idxsort = v
+                continue
             out.append('''<tr><td class="left-column"></td><td><code>%s:%s</code></td></tr>''' % (k,v))
             if k in ['loc', 'defloc']:
                 try:
@@ -209,12 +214,14 @@ if "q" in form:
                     pos = int(parts[2])
                     out.append('''<tr><td class="left-column"><a href="?path=%s#%d">%d</a></td><td><code data-file="%s" id="line-%d">%s<b>%s</b></code></td></tr>''' % (f, l, l, f, l, txt[:pos], txt[pos:]))
                     if k == 'loc':
-                        printfilename(f)
+                        if f != currentfile:
+                            printfilename(f, idxsort)
+                        currentfile = f
                         title = True
                 except:
                     pass
         if not title:
-            printfilename(indexname)
+            printfilename(indexname, idxsort)
         for l in out:
             print(l)
                 
