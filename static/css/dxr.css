@@ -1,8 +1,8 @@
 @font-face {
     font-family: 'icons';
-    src: url('/static/fonts/icons.eot') format('embedded-opentype'),
+/*    src: url('/static/fonts/icons.eot') format('embedded-opentype'),
          url('/static/fonts/icons.woff') format('woff'),
-         url('/static/fonts/icons.ttf') format('truetype');
+         url('/static/fonts/icons.ttf') format('truetype');*/
     font-weight: normal;
     font-style: normal;
 }
@@ -426,8 +426,8 @@ mark {
     transition: all .1s;
 }
 .navpanel-icon:before {
-    font-family: icons;
-    content: "\e801";
+    /*font-family: icons;*/
+    content: "v" /*"\e801"*/;
     speak: none;
 }
 .panel h4 {
