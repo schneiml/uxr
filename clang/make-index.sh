@@ -17,7 +17,7 @@ fi
 export DXR_CXX_CLANG_TEMP_FOLDER=$INDEXDIR # this is the output
 export DXR_CXX_CLANG_OBJECT_FOLDER=$PWD    # this should be the make output, to detect generated sources
 # lots of options to enable the plugin. The last determins which source files are considered interesting
-export DXR_CLANG_FLAGS="-Xclang -load -Xclang $CLANG_PLUGIN -Xclang -add-plugin -Xclang dxr-index -Xclang -plugin-arg-dxr-index -Xclang $(dirname $PWD)"
+export DXR_CLANG_FLAGS="-Xclang -load -Xclang $CLANG_PLUGIN -Xclang -add-plugin -Xclang dxr-index -Xclang -plugin-arg-dxr-index -Xclang ${PWD/tree*/tree}"
 
 export CXX="clang++ $DXR_CLANG_FLAGS"
 export CC="clang $DXR_CLANG_FLAGS"
