@@ -2,7 +2,7 @@
 # Run this where you would normally build the code like "../../uxr/clang/make-index.sh make".
 # it will run the argument with the environment set up to dump index data to the index/ folder.
 
-BASE_DIR=$(realpath $(dirname $0))
+BASE_DIR=$(readlink -e  $(dirname $0))
 INDEXDIR=$BASE_DIR/../index # the index should be a sibling of the source tree
 CLANG_PLUGIN=$BASE_DIR/libclang-index-plugin.so
 MAKECMD="$1"
