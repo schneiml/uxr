@@ -45,13 +45,14 @@ $(function() {
             current = i
             
             var current_str = html.substr(0, current)
+            var realtext = $("<div>").html(txt).text()
             var offset = current_str.length - $("<div>").html(current_str).text().length
             
             if (line) {
                 var tag = '<a class="range" href="' + uxr + '?q=loc:' + file + ':' + line + ':' + (i-offset) + " " + encodeURIComponent(txt) + '">'
                 out += tag
             } else {
-                out += '<a class="range" href="' + uxr + '?q=' + encodeURIComponent(txt) + '">'
+                out += '<a class="range" href="' + uxr + '?q=' + encodeURIComponent(realtext) + '">'
             }
             out += html.substr(current, j - current)
             current = j
