@@ -1,5 +1,16 @@
 
 $(function() {
+
+  // useless ( = line-based) syntax highlighting
+  function syntax_hl(text) {
+     var kw = /^([^<>]*(<[^>]*>[^<>]*)*)\b(if|else|for|while|class|struct|union|static|virtual|const)\b/g
+     var string = /"[^"]*"/g
+     var comment = /\/\/.*|\/\*.*\*\//
+     text = text.replace(kw, '$1<span class="k">$3</span>')
+     return text
+  }
+     
+    
   var oldquery = $('#oldquery')
     if(oldquery.size()) {
         $('#query').val(oldquery.attr("data-query"))
@@ -16,7 +27,7 @@ $(function() {
         var line = el.id.match(/line-([0-9]+)/)
         if (line) line = line[1]
             
-        var html = el.innerHTML.replace("&amp;", "&#38;")
+        var html = el.innerHTML.replace(/&amp;/g, "&#38;")
         
         var interesting = /(\w+:)?"[^"]*"|&lt;[\w/.:]+&gt;|\w\w[\w/]+/g
         
@@ -48,6 +59,6 @@ $(function() {
         }
         out += html.substr(current, html.length - current)
             
-        el.innerHTML = out
+        el.innerHTML = out //syntax_hl(out)
     });
 });
