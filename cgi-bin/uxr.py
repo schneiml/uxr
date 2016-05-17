@@ -113,6 +113,10 @@ if "q" in form:
     term = sign + key + value + '\s*'
     qe = re.compile(term)
     commands =  [m.groupdict() for m in qe.finditer(query)]
+
+    # this is used later for the index pretty-printing, but will be adapted 
+    # based on the (original) commands.
+    show = {'loc', 'qualname', 'type', 'sort'}
     
     # clean up input (removing quotes) and translate some commands to more basic ones. 
     for term in commands:
@@ -132,6 +136,8 @@ if "q" in form:
         if term['key'][:-1] in {'loc', 'defloc', 'qualname', 'type', 'name'}:
             term['value'] = ',%s,"[^"]*%s[0-9:]*"' % \
                             (term['key'][:-1], re.escape(term['value']))
+            # if the user searches for an attribute, we don't need to show it.
+            show.difference_update([term['key'][:-1]])
             term['key'] = 'index:'
             
     # Result table with all the DXR invisible mess
@@ -181,14 +187,19 @@ if "q" in form:
     # matching the index csv files... easy except for the escape hell.
     # also carry over html tags if present.
     kvpair = re.compile('''(?P<sort>\w*),(?P<key>\w+),(?P<value>"[^"]*")''')
-    show = {'loc', 'defloc', 'qualname', 'type', 'sort'}
+
+    # move 'loc' entry to the front, such that we later order first by location
+    def loc_compare(p):
+        if p[0] == 'loc':
+            return (0, p[1])
+        return (1, p[1])
 
     items = set()
     for l in sorted(results):
         l = cgi.escape(l[:-1].decode())
         kv = [m.groupdict() for m in kvpair.finditer(l)]
         idxtype = [('sort', kv[0]['sort'])]
-        kv = tuple(idxtype + sorted((e['key'], e['value']) for e in kv if e['key'] in show))
+        kv = tuple(idxtype + sorted(((e['key'], e['value']) for e in kv if e['key'] in show), key=loc_compare))
         items.add(kv)
                 
     # now pretty-print the results
@@ -204,8 +215,7 @@ if "q" in form:
             if k == 'sort':
                 idxsort = v
                 continue
-            out.append('''<tr><td class="left-column"></td><td><code>%s:%s</code></td></tr>''' % (k,v))
-            if k in ['loc', 'defloc']:
+            if k == 'loc':
                 try:
                     parts = v[1:-1].split(':')
                     f = parts[0]
@@ -213,13 +223,14 @@ if "q" in form:
                     txt = open(treename + f).readlines()[l-1]
                     pos = int(parts[2])
                     out.append('''<tr><td class="left-column"><a href="?path=%s#%d">%d</a></td><td><code data-file="%s" id="line-%d">%s<b>%s</b></code></td></tr>''' % (f, l, l, f, l, txt[:pos], txt[pos:]))
-                    if k == 'loc':
-                        if f != currentfile:
-                            printfilename(f, idxsort)
-                        currentfile = f
-                        title = True
+                    if f != currentfile:
+                        printfilename(f, idxsort)
+                    currentfile = f
+                    title = True
                 except:
                     pass
+            else:
+                out.append('''<tr><td class="left-column"></td><td><code>%s:%s</code></td></tr>''' % (k,v))
         if not title:
             printfilename(indexname, idxsort)
         for l in out:
