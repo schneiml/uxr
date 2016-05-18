@@ -153,7 +153,7 @@ if "q" in form:
     def printfilename(currentfile, label=""):
         parts = currentfile.split('/')
         print('''<tr class="result-head">
-        <td class="left-column"><div class="unknown icon-container">%s</div></td>
+        <td class="left-column">%s</td>
         <td>''' % label)
         print('<span class="path-separator">/</span>'.join(['<a href="/cgi-bin/uxr.py?path=%s">%s</a>' 
                             % ('/'.join(parts[:i+1]), parts[i]) for i in range(0, len(parts))]))
