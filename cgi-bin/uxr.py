@@ -58,7 +58,7 @@ def list_files_read():
     return [bytes(s[:len(s)-1], "UTF-8") for s in open(".files", "r")]
 
 # very similar to normal search but different output
-def run_index_search(pattern):
+def run_index_csearch(pattern):
     options = ["csearch"]
     if caseopt == '-i':
         options.append("-i")
@@ -68,9 +68,18 @@ def run_index_search(pattern):
     out = {s.split(b':', 1)[1] for s in search.stdout.readlines()}
     return out
 
+def run_index_search_ag(pattern):
+    options = ["ag"]
+    options.append(caseopt)
+    options.append(pattern)
+    search = subprocess.Popen(options, stdout = subprocess.PIPE)
+    out = {s.split(b':', 1)[1] for s in search.stdout.readlines()}
+    return out
+
 # choose backends here.
 run_search = run_search_csearch
 list_files = list_files_read
+run_index_search = run_index_search_ag
 
 print("Content-Type: text/html")    # HTML is following
 print()                             # blank line, end of headers
@@ -116,7 +125,8 @@ if "q" in form:
 
     # this is used later for the index pretty-printing, but will be adapted 
     # based on the (original) commands.
-    show = {'loc', 'qualname', 'type', 'sort'}
+    index_keys = {'loc', 'qualname', 'type', 'sort', 'callloc', 'calleeloc'}
+    show = set(index_keys)
     
     # clean up input (removing quotes) and translate some commands to more basic ones. 
     for term in commands:
@@ -134,7 +144,7 @@ if "q" in form:
         if term['key'] == 'path:':
             term['value'] = '*' + term['value'] + '*'
             term['key'] = 'wildcard:'
-        if term['key'][:-1] in {'loc', 'defloc', 'qualname', 'type', 'name'}:
+        if term['key'][:-1] in index_keys:
             term['value'] = ',%s,"[^"]*%s[0-9:]*"' % \
                             (term['key'][:-1], re.escape(term['value']))
             # if the user searches for an attribute, we don't need to show it.
