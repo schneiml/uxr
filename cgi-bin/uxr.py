@@ -125,6 +125,7 @@ if "q" in form:
         elif v[0] == "'" and v[-1] == "'": term['value'] = v[1:-1].replace("\\'", "'")
         else: term['value'] = v.replace("\\'", "'").replace('\\"', '"')
         if term['key'] == '':
+            commands.append({'key': 'file:', 'value': '*' + term['value'] + '*', 'sign': ''})
             term['value'] = re.escape(term['value'])
             term['key'] = 'regexp:'
         if term['key'] == 'ext:':
@@ -157,14 +158,29 @@ if "q" in form:
         print('<span class="path-separator">/</span>'.join(['<a href="/cgi-bin/uxr.py?path=%s">%s</a>' 
                             % ('/'.join(parts[:i+1]), parts[i]) for i in range(0, len(parts))]))
         print('</td></tr>')
-        
-    # we request color output from ag, and then "parse" the escape sequences. 
-    # Buggy on multi-line matches.
-    colorre = re.compile('\033\[[0-9;]*m|\033\[K')
-    matchre = re.compile('\033\[Xm([^\033]*)\033\[0m\033\[K')
 
-    # first we query the index
+    # first, look for matching files.
+    # the 'file:' key is like 'wildcard' but or'ed.
     pwd = os.path.realpath('.')
+    os.chdir(treename)
+
+    for term in commands:
+      if term['key'] == 'file:':
+          files = list_files()
+          p = bytes(term['value'], "UTF-8")
+          if term['sign'] == '-':
+              files = [f for f in files if not fnmatch.fnmatch(f, p)]
+          else:
+              files = [f for f in files if fnmatch.fnmatch(f, p)]
+          files.sort()
+          term['handled'] = True
+          # low limit here to avoid many (useless) matches on the top
+          for f in range(0, min(10, len(files))):
+              printfilename(files[f].decode(), 'file')
+    os.chdir(pwd)
+        
+
+    # then we query the index
     os.chdir(indexname)
     fresh = True
     results = {}
@@ -222,7 +238,9 @@ if "q" in form:
                     l = int(parts[1])
                     txt = open(treename + f).readlines()[l-1]
                     pos = int(parts[2])
-                    out.append('''<tr><td class="left-column"><a href="?path=%s#%d">%d</a></td><td><code data-file="%s" id="line-%d">%s<b>%s</b></code></td></tr>''' % (f, l, l, f, l, txt[:pos], txt[pos:]))
+                    out.append('''<tr><td class="left-column"><a href="?path=%s#%d">%d</a></td>
+                        <td><code data-file="%s" id="line-%d">%s<b>%s</b></code></td></tr>''' 
+                        % (f, l, l, f, l, txt[:pos], txt[pos:]))
                     if f != currentfile:
                         printfilename(f, idxsort)
                     currentfile = f
@@ -245,8 +263,12 @@ if "q" in form:
     # list of all non-negated REs, to use for final grep.
     allre = []
     
-    os.chdir(pwd)
     os.chdir(treename)
+
+    # we request color output from ag, and then "parse" the escape sequences. 
+    # Buggy on multi-line matches.
+    colorre = re.compile('\033\[[0-9;]*m|\033\[K')
+    matchre = re.compile('\033\[Xm([^\033]*)\033\[0m\033\[K')
     
     # we execute commands in order. Doing all paths first or sth. might be better
     # (the output should not depend on order) but csearch does not allow it
@@ -321,6 +343,8 @@ if "q" in form:
                 print('<td><code id="line-%s" data-file="%s">%s</code></td></tr>' % (p[0], currentfile, p[1]))
     else:
         print("<p><b>No matching files.</b></p>")
+
+    os.chdir(pwd)
 
     print('</tbody></table>')
     

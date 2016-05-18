@@ -39,17 +39,18 @@ $(function() {
             if (match[0].startsWith("&lt;")) i += 4
             if (match[0].endsWith  ("&gt;")) j -= 4
             var txt = html.substr(i, j-i)
-            if(!txt.match(/\w+:/)) txt = "'" + txt + "'"
+            var realtext = $("<div>").html(txt).text()
+            if(realtext.match(/^".*"$|^<.*>$/)) realtext = realtext.substr(1, realtext.length - 2)
+            if(!realtext.match(/\w+:/)) realtext = "'" + realtext + "'"
                 
             out += html.substr(current, i - current)
             current = i
             
             var current_str = html.substr(0, current)
-            var realtext = $("<div>").html(txt).text()
             var offset = current_str.length - $("<div>").html(current_str).text().length
             
             if (line) {
-                var tag = '<a class="range" href="' + uxr + '?q=loc:' + file + ':' + line + ':' + (i-offset) + " " + encodeURIComponent(txt) + '">'
+                var tag = '<a class="range" href="' + uxr + '?q=loc:' + file + ':' + line + ':' + (i-offset) + " " + encodeURIComponent(realtext) + '">'
                 out += tag
             } else {
                 out += '<a class="range" href="' + uxr + '?q=' + encodeURIComponent(realtext) + '">'
