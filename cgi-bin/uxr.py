@@ -245,7 +245,7 @@ if "q" in form:
             if k == 'sort':
                 idxsort = v
                 continue
-            if k == 'loc':
+            if k.endswith('loc'):
                 try:
                     parts = v[1:-1].split(':')
                     f = parts[0]
