@@ -160,8 +160,13 @@ if "q" in form:
       </thead>
       <tbody>''')
     
-    def printfilename(currentfile, label=""):
-        parts = currentfile.split('/')
+    current = dict(file="", label="")
+    def printfilename(file, label="", current=current):
+        if current['file'] == file and current['label'] == label:
+          return
+        current['file'] = file
+        current['label'] = label
+        parts = file.split('/')
         print('''<tr class="result-head">
         <td class="left-column">%s</td>
         <td>''' % label)
@@ -229,7 +234,6 @@ if "q" in form:
         items.add(kv)
                 
     # now pretty-print the results
-    currentfile = ""
     ctr = limit
     for kv in sorted(items):
         ctr = ctr - 1
@@ -251,9 +255,7 @@ if "q" in form:
                     out.append('''<tr><td class="left-column"><a href="?path=%s#%d">%d</a></td>
                         <td><code data-file="%s" id="line-%d">%s<b>%s</b></code></td></tr>''' 
                         % (f, l, l, f, l, txt[:pos], txt[pos:]))
-                    if f != currentfile:
-                        printfilename(f, idxsort)
-                    currentfile = f
+                    printfilename(f, idxsort)
                     title = True
                 except:
                     pass
@@ -345,8 +347,8 @@ if "q" in form:
             l = re.sub(colorre, '', l)
             p = l.split(':', maxsplit=1)
             if len(p) == 1:
+                printfilename(p[0])
                 currentfile = p[0]
-                printfilename(currentfile)
             else:
                 print('''<tr><td class="left-column"><a href="/cgi-bin/uxr.py?path=%s#%s">%s</a></td>'''
                     % (currentfile, p[0], p[0]))
