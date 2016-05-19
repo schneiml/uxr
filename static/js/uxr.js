@@ -1,66 +1,67 @@
 
 $(function() {
-
-  // useless ( = line-based) syntax highlighting
-  function syntax_hl(text) {
-     var kw = /^([^<>]*(<[^>]*>[^<>]*)*)\b(if|else|for|while|class|struct|union|static|virtual|const)\b/g
-     var string = /"[^"]*"/g
-     var comment = /\/\/.*|\/\*.*\*\//
-     text = text.replace(kw, '$1<span class="k">$3</span>')
-     return text
-  }
      
+  var uxr =  document.location.href.match(/([^?]*).*/)[1]
+  var file = document.location.href.match(/path=([^&]*\/[^#&]+)/)
+  if (file) file = file[1]
+  var syntax = /(\w+:"[^"]*")|"([^"]*)"|(\/\*.*\*\/|\/\/.*)$|\b(if|else|for|while|class|struct|union|static|virtual|const)\b|(\w([\w0-9_]+:?:?)+)\b|./g
+  var conv = document.createElement("p");
+
+  function makea(txt, file, line, idx) {
+    if (line) {
+      return '<a class="range" href="' + uxr + '?q=loc:' + file + ':' + line + ':' + (idx) + " " + encodeURIComponent(txt) + '">'
+    } else {
+      return '<a class="range" href="' + uxr + '?q=' + encodeURIComponent(txt) + '">'
+    }
+  }
+
+  $(".content code").each(function(i, el) {
+    if (!file) file = $(el).attr("data-file")
+    var line = el.id.match(/line-([0-9]+)/)
+    if (line) line = line[1]
+    var text = el.textContent
+
+    var out = ''
+    while ((match = syntax.exec(text)) != null) {
+      var idx = match.index
+      var a = ''
+      var aend = ''
+      var txt = match[0]
+
+      if (match[1]) /* key:"value" ref */ {
+        a = makea(match[1])
+        aend = '</a>'
+      }
+      if (match[2]) /* string literal */ {
+        a = makea('"' + match[2] + '"', file, line, idx)
+        aend = '</a>'
+      }
+      if (match[3]) /* comment */ {
+        a = '<span class="c">'
+        aend = '</span>'
+      }
+      if (match[4]) /* keyword */ {
+        a = '<span class="k">'
+        aend = '</span>'
+      }
+      if (match[5]) /* identifier */ {
+        a = makea("'" + match[5] + "'", file, line, idx)
+        aend = '</a>'
+      }
+
+      // otherwise we progress char-by char, probably not optimal.
+
+      conv.textContent = txt
+      out += a + conv.innerHTML + aend
+    }
+    el.innerHTML = out
+  })
+
+
     
   var oldquery = $('#oldquery')
-    if(oldquery.size()) {
-        $('#query').val(oldquery.attr("data-query"))
-        if (oldquery.attr("data-case") == 'true') $('#case').attr("checked", 1)
-    }    
-    
-    $(".content code").each(function(i, el) {
-        var file = document.location.href.match(/path=([^&]*\/[^#&]+)/)
-        if (!file) file = $(el).attr("data-file")
-        else file = file[1]
-            
-        var uxr =  document.location.href.match(/([^?]*).*/)[1]
-        
-        var line = el.id.match(/line-([0-9]+)/)
-        if (line) line = line[1]
-            
-        var html = el.innerHTML.replace(/&amp;/g, "&#38;")
-        
-        var interesting = /(\w+:)?"[^"]*"|&lt;[\w/.:]+&gt;|\w\w[\w/]+/g
-        
-        var current = 0
-        out = ''
-        while ((match = interesting.exec(html)) != null) {
-            var i = match.index
-            var j = i + match[0].length
-            if (match[0].startsWith("&lt;")) i += 4
-            if (match[0].endsWith  ("&gt;")) j -= 4
-            var txt = html.substr(i, j-i)
-            var realtext = $("<div>").html(txt).text()
-            if(realtext.match(/^".*"$|^<.*>$/)) realtext = realtext.substr(1, realtext.length - 2)
-            if(!realtext.match(/\w+:/)) realtext = "'" + realtext + "'"
-                
-            out += html.substr(current, i - current)
-            current = i
-            
-            var current_str = html.substr(0, current)
-            var offset = current_str.length - $("<div>").html(current_str).text().length
-            
-            if (line) {
-                var tag = '<a class="range" href="' + uxr + '?q=loc:' + file + ':' + line + ':' + (i-offset) + " " + encodeURIComponent(realtext) + '">'
-                out += tag
-            } else {
-                out += '<a class="range" href="' + uxr + '?q=' + encodeURIComponent(realtext) + '">'
-            }
-            out += html.substr(current, j - current)
-            current = j
-            out += '</a>'
-        }
-        out += html.substr(current, html.length - current)
-            
-        el.innerHTML = out //syntax_hl(out)
-    });
+  if(oldquery.size()) {
+      $('#query').val(oldquery.attr("data-query"))
+      if (oldquery.attr("data-case") == 'true') $('#case').attr("checked", 1)
+  }    
 });
