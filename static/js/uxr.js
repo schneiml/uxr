@@ -4,7 +4,7 @@ $(function() {
   var uxr =  document.location.href.match(/([^?]*).*/)[1]
   var file = document.location.href.match(/path=([^&]*\/[^#&]+)/)
   if (file) file = file[1]
-  var syntax = /(\w+:"[^"]*")|"([^"]*)"|(\/\*.*\*\/|\/\/.*)$|\b(if|else|for|while|class|struct|union|static|virtual|const)\b|(\w([\w0-9_]+:?:?)+)\b|./g
+  var syntax = /(\w+:"[^"]*")|"([^"]*)"|(\/\*.*\*\/|\/\/.*)$|\b(if|else|for|while|class|struct|union|static|virtual|const)\b|(\w([\w0-9_]+:?:?)+)\b|(\u3039)|(\u303a)|./g
   var conv = document.createElement("p");
 
   function makea(txt, file, line, idx) {
@@ -19,9 +19,14 @@ $(function() {
     if (!file) file = $(el).attr("data-file")
     var line = el.id.match(/line-([0-9]+)/)
     if (line) line = line[1]
+    if (el.innerHTML.match("<b>")) {
+      // hope that those symbols never appear, we turn them back into tags later
+      el.innerHTML = el.innerHTML.replace(/<b>/g, "&#12345;").replace(/<\/b>/g, "&#12346;")
+    }
     var text = el.textContent
 
     var out = ''
+    var offset = 0 // num invisible chars so far
     while ((match = syntax.exec(text)) != null) {
       var idx = match.index
       var a = ''
@@ -33,7 +38,7 @@ $(function() {
         aend = '</a>'
       }
       if (match[2]) /* string literal */ {
-        a = makea('"' + match[2] + '"', file, line, idx)
+        a = makea('"' + match[2] + '"', file, line, idx-offset)
         aend = '</a>'
       }
       if (match[3]) /* comment */ {
@@ -45,8 +50,18 @@ $(function() {
         aend = '</span>'
       }
       if (match[5]) /* identifier */ {
-        a = makea("'" + match[5] + "'", file, line, idx)
+        a = makea("'" + match[5] + "'", file, line, idx-offset)
         aend = '</a>'
+      }
+      if (match[7]) /* <b> marker */ {
+        txt = ''
+        a = "<b>"
+        offset++
+      }
+      if (match[8]) /* </b> marker */ {
+        txt = ''
+        a = "</b>"
+        offset++
       }
 
       // otherwise we progress char-by char, probably not optimal.
