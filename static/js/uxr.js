@@ -4,7 +4,7 @@ $(function() {
   var uxr =  document.location.href.match(/([^?]*).*/)[1]
   var file = document.location.href.match(/path=([^&]*\/[^#&]+)/)
   if (file) file = file[1]
-  var syntax = /(\w+:"[^"]*")|"([^"]*)"|(\/\*.*\*\/|\/\/.*)$|\b(if|else|for|while|class|struct|union|static|virtual|const)\b|(\w([\w0-9_]+:?:?)+)\b|(\u3039)|(\u303a)|./g
+  var syntax = /(\w+:"[^"]*")|"([^"]*)"|(\/\*.*\*\/|\/\/.*)$|\b(if|else|for|while|class|struct|union|static|virtual|const|public|private|protected|new|using|namespace|typedef|break|continue|case|switch|goto|return|void|unsigned|int|long|short|char|float|double|volatile|u?int\d+_t)\b|#\s*(include|if|ifdef|ifndef|define|endif|pragma)\b|(\w([\w0-9_]+:?:?)+)\b|(\u3039)|(\u303a)|./g
   var conv = document.createElement("p");
 
   function makea(txt, file, line, idx) {
@@ -38,8 +38,8 @@ $(function() {
         aend = '</a>'
       }
       if (match[2]) /* string literal */ {
-        a = makea('"' + match[2] + '"', file, line, idx-offset)
-        aend = '</a>'
+        a = makea('"' + match[2] + '"', file, line, idx-offset) + '<span class="str">'
+        aend = '</span></a>'
       }
       if (match[3]) /* comment */ {
         a = '<span class="c">'
@@ -49,16 +49,20 @@ $(function() {
         a = '<span class="k">'
         aend = '</span>'
       }
-      if (match[5]) /* identifier */ {
-        a = makea("'" + match[5] + "'", file, line, idx-offset)
+      if (match[5]) /* preprocessor */ {
+        a = '<span class="k">'
+        aend = '</span>'
+      }
+      if (match[6]) /* identifier */ {
+        a = makea("'" + match[6] + "'", file, line, idx-offset)
         aend = '</a>'
       }
-      if (match[7]) /* <b> marker */ {
+      if (match[8]) /* <b> marker */ {
         txt = ''
         a = "<b>"
         offset++
       }
-      if (match[8]) /* </b> marker */ {
+      if (match[9]) /* </b> marker */ {
         txt = ''
         a = "</b>"
         offset++

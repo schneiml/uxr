@@ -8,14 +8,14 @@ CLANG_PLUGIN=$BASE_DIR/libclang-index-plugin.so
 MAKECMD="$1"
 
 mkdir -p $INDEXDIR
-rm $INDEXDIR/*
+# rm $INDEXDIR/*
 
 if [ ! -f $CLANG_PLUGIN ]; then # try to make the plugin if it is not there
     ( cd $(dirname $CLANG_PLUGIN); make)
 fi
 
 export DXR_CXX_CLANG_TEMP_FOLDER=$INDEXDIR # this is the output
-export DXR_CXX_CLANG_OBJECT_FOLDER=$PWD    # this should be the make output, to detect generated sources
+export DXR_CXX_CLANG_OBJECT_FOLDER=/tmp    # this should be the make output, to detect generated sources
 # lots of options to enable the plugin. The last determins which source files are considered interesting
 export DXR_CLANG_FLAGS="-Xclang -load -Xclang $CLANG_PLUGIN -Xclang -add-plugin -Xclang dxr-index -Xclang -plugin-arg-dxr-index -Xclang ${PWD/tree*/tree}"
 
