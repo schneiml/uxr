@@ -82,5 +82,6 @@ $(function() {
   if(oldquery.size()) {
       $('#query').val(oldquery.attr("data-query"))
       if (oldquery.attr("data-case") == 'true') $('#case').attr("checked", 1)
+      $('#query').blur();
   }    
 });
