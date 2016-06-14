@@ -202,13 +202,16 @@ if "q" in form:
     for term in commands:
         if term['key'] == 'index:':
             # if this is the first pattern we go to the index
+            # TODO: '-' first is unsupported
             if fresh:
                 results = run_index_search(term['value'])
             #print("Term '%s' %d res\n" % (term['value'], len(results)))
             fresh = False
             term['handled'] = True
             # else just use ag to select lines
-            agoptions = ["ag", "-f", caseopt, '--', term['value']]
+            agoptions = ["ag", "-f", caseopt]
+            if term['sign'] == '-': agoptions.append("-v")
+            agoptions += ['--', term['value']]
             ag = subprocess.Popen(agoptions, stdout = subprocess.PIPE, stdin = subprocess.PIPE)
             res = ag.communicate(b''.join(results))
             results = set(res[0].splitlines(keepends=True))
