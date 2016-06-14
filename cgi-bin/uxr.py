@@ -204,7 +204,7 @@ if "q" in form:
             # if this is the first pattern we go to the index
             if fresh:
                 results = run_index_search(term['value'])
-            print("Term '%s' %d res\n" % (term['value'], len(results)))
+            #print("Term '%s' %d res\n" % (term['value'], len(results)))
             fresh = False
             term['handled'] = True
             # else just use ag to select lines
