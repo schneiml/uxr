@@ -236,8 +236,6 @@ if "q" in form:
     # now pretty-print the results
     ctr = limit
     for kv in sorted(items):
-        ctr = ctr - 1
-        if ctr == 0: break
         out = []
         title = False
         idxsort = ""
@@ -249,6 +247,17 @@ if "q" in form:
                 try:
                     parts = v[1:-1].split(':')
                     f = parts[0]
+                    # now that we have a file name, we should also apply the path stuff.
+                    ok = True
+                    for term in commands:
+                        if term['key'] == 'wildcard:':
+                            p = term['value']
+                            if term['sign'] == '-':
+                                ok = ok and not fnmatch.fnmatch(f, p)
+                            else:
+                                ok = ok and fnmatch.fnmatch(f, p)
+                    if not ok: continue
+                        
                     l = int(parts[1])
                     txt = open(treename + f).readlines()[l-1]
                     pos = int(parts[2])
@@ -265,6 +274,8 @@ if "q" in form:
             printfilename(indexname, idxsort)
         for l in out:
             print(l)
+        ctr = ctr - 1
+        if ctr == 0: break
                 
         
     # the main code search evaluator.
