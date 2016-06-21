@@ -16,7 +16,7 @@ $(function() {
   }
 
   $(".content code").each(function(i, el) {
-    if (!file) file = $(el).attr("data-file")
+    if ($(el).attr("data-file")) file = $(el).attr("data-file")
     var line = el.id.match(/line-([0-9]+)/)
     if (line) line = line[1]
     if (el.innerHTML.match("<b>")) {
