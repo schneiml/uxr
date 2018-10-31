@@ -97,7 +97,7 @@ public:
   void MacroDefined(const Token &tok, const MacroDirective *md) override;
   void MacroExpands(const Token &tok, const MacroDefinition &md, SourceRange range,
                     const MacroArgs *ma) override;
-  void MacroUndefined(const Token &tok, const MacroDefinition &md) override;
+  virtual void MacroUndefined(const Token &tok, const MacroDefinition &md, const MacroDirective *Undef) override;
   void Defined(const Token &tok, const MacroDefinition &md,
                SourceRange range) override;
   void Ifdef(SourceLocation loc, const Token &tok,
@@ -105,7 +105,7 @@ public:
   void Ifndef(SourceLocation loc, const Token &tok,
               const MacroDefinition &md) override;
 
-  void InclusionDirective(  // same in 3.2 and 3.3
+  virtual void InclusionDirective(  // same in 3.2 and 3.3
       SourceLocation hashLoc,
       const Token &includeTok,
       StringRef fileName,
@@ -114,7 +114,8 @@ public:
       const FileEntry *file,
       StringRef searchPath,
       StringRef relativePath,
-      const Module *imported) override;
+      const Module *imported,
+      SrcMgr::CharacteristicKind FileType) override;
 };
 
 // IndexConsumer is our primary AST consumer.
@@ -985,7 +986,7 @@ public:
         loc = sm.getImmediateSpellingLoc(loc);
       }
       else
-        loc = sm.getImmediateExpansionRange(loc).first;
+        loc = sm.getImmediateExpansionRange(loc).getBegin();
     }
     return loc;
   }
@@ -1171,7 +1172,7 @@ void PreprocThunk::MacroExpands(const Token &tok, const MacroDefinition &md,
                                 SourceRange range, const MacroArgs *ma) {
   real->MacroExpands(tok, md.getMacroInfo(), range);
 }
-void PreprocThunk::MacroUndefined(const Token &tok, const MacroDefinition &md) {
+void PreprocThunk::MacroUndefined(const Token &tok, const MacroDefinition &md, const MacroDirective *Undef) {
   real->MacroUndefined(tok, md.getMacroInfo());
 }
 void PreprocThunk::Defined(const Token &tok, const MacroDefinition &md,
@@ -1196,7 +1197,8 @@ void PreprocThunk::InclusionDirective(  // same in 3.2 and 3.3
     const FileEntry *file,
     StringRef searchPath,
     StringRef relativePath,
-    const Module *imported) {
+    const Module *imported,
+    SrcMgr::CharacteristicKind FileType) {
   real->InclusionDirective(hashLoc, includeTok, fileName, isAngled, filenameRange,
                            file, searchPath, relativePath, imported);
 }
