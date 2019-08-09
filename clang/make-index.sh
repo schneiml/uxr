@@ -21,5 +21,6 @@ export DXR_CLANG_FLAGS="-Xclang -load -Xclang $CLANG_PLUGIN -Xclang -add-plugin 
 
 export CXX="clang++ $DXR_CLANG_FLAGS"
 export CC="clang $DXR_CLANG_FLAGS"
+export USER_CXXFLAGS="$DXR_CLANG_FLAGS"
 
 eval $MAKECMD
