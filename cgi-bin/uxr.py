@@ -77,7 +77,7 @@ def run_index_search_ag(pattern):
     return out
 
 # choose backends here.
-run_search = run_search_csearch
+run_search = run_search_ag
 list_files = list_files_read
 run_index_search = run_index_search_ag
 
