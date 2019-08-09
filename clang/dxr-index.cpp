@@ -67,7 +67,7 @@ struct FileInfo {
     interesting = rname.compare(0, srcdir.length(), srcdir) == 0;
     if (interesting) {
       // Remove the trailing `/' as well.
-      realname.erase(0, srcdir.length() + 1);
+      realname.erase(0, srcdir.length());
     } else if (rname.compare(0, output.length(), output) == 0) {
       // We're in the output directory, so we are probably a generated header.
       // We use the escape character to indicate the objdir nature.
@@ -93,19 +93,49 @@ class PreprocThunk : public PPCallbacks {
   IndexConsumer *real;
 public:
   PreprocThunk(IndexConsumer *c) : real(c) {}
-
+#if CLANG_AT_LEAST(3, 3)
   void MacroDefined(const Token &tok, const MacroDirective *md) override;
-  void MacroExpands(const Token &tok, const MacroDefinition &md, SourceRange range,
-                    const MacroArgs *ma) override;
-  virtual void MacroUndefined(const Token &tok, const MacroDefinition &md, const MacroDirective *Undef) override;
-  void Defined(const Token &tok, const MacroDefinition &md,
-               SourceRange range) override;
-  void Ifdef(SourceLocation loc, const Token &tok,
-             const MacroDefinition &md) override;
-  void Ifndef(SourceLocation loc, const Token &tok,
-              const MacroDefinition &md) override;
-
-  virtual void InclusionDirective(  // same in 3.2 and 3.3
+  #if CLANG_AT_LEAST(3, 7)
+    void MacroExpands(const Token &tok, const MacroDefinition &md,
+                      SourceRange range, const MacroArgs *ma) override;
+    #if CLANG_AT_LEAST(5, 0)
+    void MacroUndefined(const Token &tok, const MacroDefinition &md,
+                        const MacroDirective *Undef) override;
+    #else
+    void MacroUndefined(const Token &tok, const MacroDefinition &md) override;
+    #endif
+    void Ifdef(SourceLocation loc, const Token &tok,
+               const MacroDefinition &md) override;
+    void Ifndef(SourceLocation loc, const Token &tok,
+                const MacroDefinition &md) override;
+  #else
+    void MacroExpands(const Token &tok, const MacroDirective *md,
+                      SourceRange range, const MacroArgs *ma) override;
+    void MacroUndefined(const Token &tok, const MacroDirective *md) override;
+    void Ifdef(SourceLocation loc, const Token &tok,
+               const MacroDirective *md) override;
+    void Ifndef(SourceLocation loc, const Token &tok,
+                const MacroDirective *md) override;
+  #endif
+  #if CLANG_AT_LEAST(3, 7)
+    void Defined(const Token &tok, const MacroDefinition &md,
+                 SourceRange range) override;
+  #elif CLANG_AT_LEAST(3, 4)
+    void Defined(const Token &tok, const MacroDirective *md,
+                 SourceRange range) override;
+  #else
+    void Defined(const Token &tok, const MacroDirective *md) override;
+  #endif
+#else  // clang < 3.3
+  void MacroDefined(const Token &MacroNameTok, const MacroInfo *MI) override;
+  void MacroExpands(const Token &MacroNameTok, const MacroInfo *MI,
+                    SourceRange Range) override;
+  void MacroUndefined(const Token &tok, const MacroInfo *MI) override;
+  void Defined(const Token &tok) override;
+  void Ifdef(SourceLocation loc, const Token &tok) override;
+  void Ifndef(SourceLocation loc, const Token &tok) override;
+#endif
+  void InclusionDirective(
       SourceLocation hashLoc,
       const Token &includeTok,
       StringRef fileName,
@@ -127,9 +157,16 @@ private:
   SourceManager &sm;
   std::ostream *out;
   std::map<std::string, FileInfoPtr> relmap;
+  // Map the SourceLocation of a macro to the text of the macro def.
+  std::map<SourceLocation, std::string> macromap;
   LangOptions &features;
+#if CLANG_AT_LEAST(3, 6)
   std::unique_ptr<DiagnosticConsumer> inner;
+#else
+  DiagnosticConsumer *inner;
+#endif
   static std::string tmpdir;  // Place to save all the csv files to
+  PrintingPolicy printPolicy;
 
   const FileInfoPtr &getFileInfo(const std::string &filename) {
     std::map<std::string, FileInfoPtr>::iterator it;
@@ -158,11 +195,30 @@ private:
   }
 public:
   IndexConsumer(CompilerInstance &ci)
-    : ci(ci), sm(ci.getSourceManager()), features(ci.getLangOpts()) {
+    : ci(ci), sm(ci.getSourceManager()), features(ci.getLangOpts()),
+      printPolicy(features) {
 
     inner = ci.getDiagnostics().takeClient();
     ci.getDiagnostics().setClient(this, false);
+#if CLANG_AT_LEAST(3, 6)
     ci.getPreprocessor().addPPCallbacks(std::unique_ptr<PPCallbacks>(new PreprocThunk(this)));
+#else
+    ci.getPreprocessor().addPPCallbacks(new PreprocThunk(this));
+#endif
+    // Print "bool" instead of "_Bool" when we print types.
+    printPolicy.Bool = true;
+    // Print just 'mytype' instead of 'class mytype' or 'enum mytype' etc.;
+    // the tag doesn't help us and probably makes it harder to craft
+    // handwritten queries.
+    printPolicy.SuppressTagKeyword = true;
+  }
+
+  ~IndexConsumer() {
+#if CLANG_AT_LEAST(3, 6)
+    ci.getDiagnostics().setClient(inner.release());
+#else
+    ci.getDiagnostics().setClient(inner);
+#endif
   }
 
 #if CLANG_AT_LEAST(3, 3)
@@ -222,9 +278,48 @@ public:
   }
 
   // Return the location right after the token at `loc` finishes.
-  SourceLocation afterToken(SourceLocation loc) {
+  SourceLocation afterToken(SourceLocation loc, const std::string& tokenHint = "") {
+    // TODO: Would it be safe to just change this function to be
+    //    return loc.getLocWithOffset(tokenHint.size());
+    // in the cases where we already know the full name in the caller?
+    // In the meantime we're only using tokenHint for its first character: the
+    // lexer treats '~' as a token in some cases and not in others (due to the
+    // ambiguity between whether '~X();' means destructor decl or one's
+    // complement on the return of a function), so we help things along by just
+    // always starting one after the '~'.
+    if (tokenHint.size() > 1 && tokenHint[0] == '~')
+      loc = loc.getLocWithOffset(1);
     // TODO: Perhaps, at callers, pass me begin if !end.isValid().
     return Lexer::getLocForEndOfToken(loc, 0, sm, features);
+  }
+
+  // Record the correct "locend" for name (when name is the name of a destructor
+  // it works around some inconsistencies).
+  void recordLocEndForName(const std::string& name,
+                           SourceLocation beginLoc, SourceLocation endLoc) {
+    // Some versions (or settings or whatever) of clang consider '~MyClass' to
+    // be two tokens, others just one, so we just always let afterToken take
+    // care of the '~' when there is one.
+    if (name.size() > 1 && name[0] == '~')
+      recordValue("locend", locationToString(afterToken(beginLoc, name)));
+    else
+      recordValue("locend", locationToString(afterToken(endLoc)));
+  }
+
+  // Given a declaration, get the name of the file containing the corresponding
+  // definition or the name of the file containing the declaration if no
+  // definition can be found.
+  std::string getRealFilenameForDefinition(const NamedDecl &d) {
+    const NamedDecl *decl = &d;
+
+    if (const FunctionDecl *fd = dyn_cast<FunctionDecl>(decl)) {
+      const FunctionDecl *def = 0;
+      if (fd->isDefined(def))
+        decl = def;
+    }
+
+    const std::string &filename = sm.getFilename(decl->getLocation());
+    return getFileInfo(filename)->realname;
   }
 
   // This is a wrapper around NamedDecl::getQualifiedNameAsString.
@@ -232,6 +327,7 @@ public:
   // which would otherwise be ambiguous.
   std::string getQualifiedName(const NamedDecl &d) {
     std::string ret;
+    const FunctionDecl *fd = nullptr;
     const DeclContext *ctx = d.getDeclContext();
     if (ctx->isFunctionOrMethod() && isa<NamedDecl>(ctx)) {
       // This is a local variable.
@@ -241,10 +337,33 @@ public:
       ret = getQualifiedName(*cast<NamedDecl>(ctx)) + "::" + d.getNameAsString();
     }
     else {
-      ret = d.getQualifiedNameAsString();
+      if ((fd = dyn_cast<FunctionDecl>(&d))) {  // A function
+        if (fd->isTemplateInstantiation()) {
+          // Use the original template pattern, not the substituted concrete
+          // types, for the qualname:
+          fd = fd->getTemplateInstantiationPattern();
+#if 0 // Activate this section to give most full (but no partial!) function
+      // template specializations the same qualname as the base template.
+        } else if (FunctionTemplateSpecializationInfo *ftsi =
+                     fd->getTemplateSpecializationInfo()) {
+          // This gives a function template and its full specializations the
+          // same qualname.  Unfortunately I don't know how to do the same for
+          // *partial* class template specializations, so for now the original
+          // template and each partial specialization gets its own qualname.
+          fd = ftsi->getTemplate()->getTemplatedDecl();
+#endif
+        }
+        // Canonicalize the decl - otherwise you can get different qualnames
+        // depending on the location of your decl (which would be bad).
+        fd = fd->getCanonicalDecl();
+        ret = fd->getQualifiedNameAsString();
+      }
+      else {
+        ret = d.getQualifiedNameAsString();
+      }
     }
 
-    if (const FunctionDecl *fd = dyn_cast<FunctionDecl>(&d)) {
+    if (fd) {
       // This is a function.  getQualifiedNameAsString will return a string
       // like "ANamespace::AFunction".  To this we append the list of parameters
       // so that we can distinguish correctly between
@@ -258,7 +377,7 @@ public:
         for (unsigned i = 0; i < num_params; ++i) {
           if (i)
             ret += ", ";
-          ret += fd->getParamDecl(i)->getType().getAsString();
+          ret += fd->getParamDecl(i)->getType().getAsString(printPolicy);
         }
 
         if (fpt->isVariadic()) {
@@ -279,10 +398,12 @@ public:
     const std::string anon_ns = "<anonymous namespace>";
 #endif
     if (StringRef(ret).startswith(anon_ns)) {
-      const std::string &filename = ci.getFrontendOpts().Inputs[0].getFile().str();
-      const std::string &realname = getFileInfo(filename)->realname;
+      const std::string &realname = getRealFilenameForDefinition(d);
       ret = "(" + ret.substr(1, anon_ns.size() - 2) + " in " + realname + ")" +
         ret.substr(anon_ns.size());
+    } else if (d.getLinkageInternal() == InternalLinkage) {
+      const std::string &realname = getRealFilenameForDefinition(d);
+      ret = "(static in " + realname + ")::" + ret;
     }
     return ret;
   }
@@ -299,17 +420,15 @@ public:
     *out << name;
   }
 
-  void recordValue(const char *key, std::string value, bool needQuotes=false) {
+  void recordValue(const char *key, std::string value) {
     *out << "," << key << ",\"";
     int start = 0;
-    if (needQuotes) {
-      int quote = value.find('"');
-      while (quote != -1) {
-        // Need to repeat the "
-        *out << value.substr(start, quote - start + 1) << "\"";
-        start = quote + 1;
-        quote = value.find('"', start);
-      }
+    int quote = value.find('"');
+    while (quote != -1) {
+      // Need to repeat the "
+      *out << value.substr(start, quote - start + 1) << "\"";
+      start = quote + 1;
+      quote = value.find('"', start);
     }
     *out << value.substr(start) << "\"";
   }
@@ -359,19 +478,20 @@ public:
   // vars, funcs, types, enums, classes, unions, etc.
   void declDef(const char *kind, const NamedDecl *decl, const NamedDecl *def,
                SourceLocation begin, SourceLocation end) {
-    if (!def || def == decl) {
-      // Why aren't we interested in declarations of things that aren't [later]
-      // defined?
+    if (def == decl) {
       return;
     }
 
     beginRecord("decldef", decl->getLocation());  // Assuming this is an
                                                   // expansion location.
-    recordValue("name", decl->getNameAsString());
-    recordValue("qualname", getQualifiedName(*def));
+    std::string name = decl->getNameAsString();
+    recordValue("name", name);
+    recordValue("qualname", getQualifiedName(def ? *def : *decl));
     recordValue("loc", locationToString(decl->getLocation()));
-    recordValue("locend", locationToString(afterToken(decl->getLocation())));
-    recordValue("defloc", locationToString(def->getLocation()));
+    recordValue("locend",
+                locationToString(afterToken(decl->getLocation(), name)));
+    if (def)
+      recordValue("defloc", locationToString(def->getLocation()));
     if (kind)
       recordValue("kind", kind);
     *out << std::endl;
@@ -480,22 +600,23 @@ public:
       std::string functionQualName = getQualifiedName(*d);
       recordValue("qualname", functionQualName);
 #if CLANG_AT_LEAST(3, 5)
-      recordValue("type", d->getCallResultType().getAsString());
+      recordValue("type", d->getCallResultType().getAsString(printPolicy));
 #else
-      recordValue("type", d->getResultType().getAsString());
+      recordValue("type", d->getResultType().getAsString(printPolicy));
 #endif
       std::string args("(");
       for (FunctionDecl::param_iterator it = d->param_begin();
           it != d->param_end(); it++) {
         args += ", ";
-        args += (*it)->getType().getAsString();
+        args += (*it)->getType().getAsString(printPolicy);
       }
       if (d->getNumParams() > 0)
         args.erase(1, 2);
       args += ")";
       recordValue("args", args);
-      recordValue("loc", locationToString(d->getNameInfo().getBeginLoc()));
-      recordValue("locend", locationToString(afterToken(d->getNameInfo().getEndLoc())));
+      SourceLocation beginLoc = d->getNameInfo().getBeginLoc();
+      recordValue("loc", locationToString(beginLoc));
+      recordLocEndForName(functionName, beginLoc, d->getNameInfo().getEndLoc());
       printScope(d);
       *out << std::endl;
 
@@ -508,29 +629,23 @@ public:
                methodDecl->begin_overridden_methods(),
                end = methodDecl->end_overridden_methods();
              iter != end; ++iter) {
-          const FunctionDecl *overriddenDecl = nullptr;
-          // Get the overridden definition if it exists...
-          (*iter)->isDefined(overriddenDecl);
-          // Otherwise get the pure virtual declaration if that exists.
-          if (!overriddenDecl && (*iter)->isPure()) {
-            overriddenDecl = *iter;
-          }
-          if (overriddenDecl) {
-            beginRecord("func_override", functionLocation);
-            recordValue("name", functionName);
-            recordValue("qualname", functionQualName);
-            recordValue("overriddenname", overriddenDecl->getNameAsString());
-            recordValue("overriddenqualname", getQualifiedName(*overriddenDecl));
-            *out << std::endl;
-          }
+          const FunctionDecl *overriddenDecl = *iter;
+          if (!interestingLocation(overriddenDecl->getLocation()))
+            continue;
+          beginRecord("func_override", functionLocation);
+          recordValue("name", functionName);
+          recordValue("qualname", functionQualName);
+          recordValue("overriddenname", overriddenDecl->getNameAsString());
+          recordValue("overriddenqualname", getQualifiedName(*overriddenDecl));
+          *out << std::endl;
         }
       }
     }
 
-    const FunctionDecl *def;
-    if (d->isDefined(def))
-      declDef("function", d, def,
-              d->getNameInfo().getBeginLoc(), d->getNameInfo().getEndLoc());
+    const FunctionDecl *def = nullptr;
+    d->isDefined(def);
+    declDef("function", d, def,
+            d->getNameInfo().getBeginLoc(), d->getNameInfo().getEndLoc());
 
     return true;
   }
@@ -604,10 +719,10 @@ public:
       recordValue("qualname", getQualifiedName(*d));
       recordValue("loc", locationToString(location));
       recordValue("locend", locationToString(afterToken(location)));
-      recordValue("type", d->getType().getAsString(), true);
+      recordValue("type", d->getType().getAsString(printPolicy));
       const std::string &value = getValueForValueDecl(d);
       if (!value.empty())
-        recordValue("value", value, true);
+        recordValue("value", value);
       printScope(d);
       *out << std::endl;
     }
@@ -761,16 +876,18 @@ public:
   // Expressions!
   void printReference(const char *kind, NamedDecl *d,
                       SourceLocation refLoc, SourceLocation end) {
-    if (!interestingLocation(d->getLocation()) || !interestingLocation(refLoc))
+    if (!interestingLocation(refLoc))
       return;
     SourceLocation nonMacroRefLoc = escapeMacros(refLoc);
+    std::string name = d->getNameAsString();
     beginRecord("ref", nonMacroRefLoc);
-    recordValue("defloc", locationToString(d->getLocation()));
+    if (interestingLocation(d->getLocation()))
+      recordValue("defloc", locationToString(d->getLocation()));
     recordValue("loc", locationToString(nonMacroRefLoc));
-    recordValue("locend", locationToString(afterToken(escapeMacros(end))));
+    recordLocEndForName(name, nonMacroRefLoc, escapeMacros(end));
     if (kind)
       recordValue("kind", kind);
-    recordValue("name", d->getNameAsString());
+    recordValue("name", name);
     recordValue("qualname", getQualifiedName(*d));
     *out << std::endl;
   }
@@ -784,10 +901,19 @@ public:
   }
 
   bool VisitMemberExpr(MemberExpr *e) {
-    printReference(kindForDecl(e->getMemberDecl()),
-                   e->getMemberDecl(),
+    ValueDecl *vd = e->getMemberDecl();
+    if (FieldDecl *fd = dyn_cast<FieldDecl>(vd)) {
+      /* Ignore references to a anonymous structs and unions.
+       * We can't do anything useful with them and they overlap with the
+       * reference to the member inside the struct/union causing us to
+       * effectively lose that other reference. */
+      if (fd->isAnonymousStructOrUnion())
+        return true;
+    }
+    printReference(kindForDecl(vd),
+                   vd,
                    e->getExprLoc(),
-                   e->getSourceRange().getEnd());
+                   e->getMemberNameInfo().getEndLoc());
     return true;
   }
 
@@ -796,6 +922,8 @@ public:
       visitNestedNameSpecifierLoc(e->getQualifierLoc());
     SourceLocation start = e->getNameInfo().getBeginLoc();
     SourceLocation end = e->getNameInfo().getEndLoc();
+    if (end.isInvalid())
+        end = start;
     if (FunctionDecl *fd = dyn_cast<FunctionDecl>(e->getDecl())) {
       /* We want to avoid overlapping refs for operator() or operator[]
          at least until we have better support for overlapping refs.
@@ -818,8 +946,7 @@ public:
       return true;
 
     Decl *callee = e->getCalleeDecl();
-    if (!callee || !interestingLocation(callee->getLocation()) ||
-        !NamedDecl::classof(callee))
+    if (!callee || !NamedDecl::classof(callee))
       return true;
 
     const NamedDecl *namedCallee = dyn_cast<NamedDecl>(callee);
@@ -831,7 +958,8 @@ public:
     beginRecord("call", e->getLocStart());
     recordValue("callloc", locationToString(e->getLocStart()));
     recordValue("calllocend", locationToString(e->getLocEnd()));
-    recordValue("calleeloc", locationToString(callee->getLocation()));
+    if (interestingLocation(callee->getLocation()))
+      recordValue("calleeloc", locationToString(callee->getLocation()));
     recordValue("name", namedCallee->getNameAsString());
     recordValue("qualname", getQualifiedName(*namedCallee));
     // Determine the type of call
@@ -858,8 +986,7 @@ public:
       return true;
 
     CXXConstructorDecl *callee = e->getConstructor();
-    if (!callee || !interestingLocation(callee->getLocation()) ||
-        !NamedDecl::classof(callee))
+    if (!callee || !NamedDecl::classof(callee))
       return true;
 
     // Fun facts about call exprs:
@@ -869,7 +996,8 @@ public:
     beginRecord("call", e->getLocStart());
     recordValue("callloc", locationToString(e->getLocStart()));
     recordValue("calllocend", locationToString(e->getLocEnd()));
-    recordValue("calleeloc", locationToString(callee->getLocation()));
+    if (interestingLocation(callee->getLocation()))
+      recordValue("calleeloc", locationToString(callee->getLocation()));
     recordValue("name", callee->getNameAsString());
     recordValue("qualname", getQualifiedName(*callee));
 
@@ -1003,7 +1131,7 @@ public:
     info.FormatDiagnostic(message);
 
     beginRecord("warning", info.getLocation());
-    recordValue("msg", message.c_str(), true);
+    recordValue("msg", message.c_str());
     StringRef opt = DiagnosticIDs::getWarningOptionForDiag(info.getID());
     if (!opt.empty())
       recordValue("opt", ("-W" + opt).str());
@@ -1051,32 +1179,39 @@ public:
     } else {
       defnStart = nameLen;
     }
-    // Find the first non-whitespace character for the definition.
-    for (; defnStart < length; defnStart++) {
-      switch (contents[defnStart]) {
-        case ' ': case '\t': case '\v': case '\r': case '\n': case '\f':
-          continue;
+    bool hasArgs = (argsEnd - argsStart > 2);  // An empty '()' doesn't count.
+    if (!hasArgs) {
+      // Skip leading whitespace in the definition up to and including any first
+      // line continuation.
+      for (; defnStart < length; defnStart++) {
+        switch (contents[defnStart]) {
+          case ' ': case '\t': case '\v': case '\r': case '\n': case '\f':
+            continue;
+          case '\\':
+            if (defnStart + 2 < length && contents[defnStart + 1] == '\n') {
+              defnStart += 2;
+            }
+            break;
+        }
+        break;
       }
-      break;
     }
     beginRecord("macro", nameStart);
     recordValue("loc", locationToString(nameStart));
     recordValue("locend", locationToString(afterToken(nameStart)));
     recordValue("name", std::string(contents, nameLen));
-    if (argsStart > 0) {
-      recordValue("args", std::string(contents + argsStart,
-                                      argsEnd - argsStart), true);
-    }
     if (defnStart < length) {
-      std::string text =  std::string(contents + defnStart,
-        length - defnStart);
+      std::string text;
+      if (hasArgs)  // Give the argument list.
+        text = std::string(contents + argsStart, argsEnd - argsStart);
+      text += std::string(contents + defnStart, length - defnStart);
       // FIXME: handle non-ASCII characters better
       for (size_t i = 0; i < text.size(); ++i) {
         if ((text[i] < ' ' || text[i] >= 0x7F) &&
             text[i] != '\t' && text[i] != '\n')
           text[i] = '?';
       }
-      recordValue("text", text, true);
+      macromap.insert(make_pair(nameStart, text));
     }
     *out << std::endl;
   }
@@ -1099,6 +1234,11 @@ public:
     recordValue("loc", locationToString(refLoc));
     recordValue("locend", locationToString(afterToken(refLoc)));
     recordValue("kind", "macro");
+    std::map<SourceLocation, std::string>::const_iterator it =
+      macromap.find(macroLoc);
+    if (it != macromap.end()) {
+      recordValue("text", it->second);
+    }
     *out << std::endl;
   }
 
@@ -1129,29 +1269,32 @@ public:
       StringRef relativePath,
       const Module *imported) {
     PresumedLoc presumedHashLoc = sm.getPresumedLoc(hashLoc);
-    const FileInfoPtr &source = getFileInfo(presumedHashLoc.getFilename());
-    const FileInfoPtr &target = getFileInfo(file->getName());
-    SourceLocation targetBegin, targetEnd;
-
     if (!interestingLocation(hashLoc) ||
         filenameRange.isInvalid() ||
-        presumedHashLoc.isInvalid() ||
+        presumedHashLoc.isInvalid())
+      return;
 
-        // Don't record inclusions of files that are outside the source tree,
-        // like stdlibs. file is NULL if an #include can't be resolved, like if
-        // you include a nonexistent file.
-        !file ||
+    // Don't record inclusions of files that are outside the source tree,
+    // like stdlibs. file is NULL if an #include can't be resolved, like if
+    // you include a nonexistent file.
+    if (!file)
+      return;
 
-        !(target->interesting) ||
+    const FileInfoPtr &target = getFileInfo(file->getName());
+    if (!target->interesting)
+      return;
 
-        // TODO: Come up with some kind of reasonable extent for macro-based
-        // includes, like #include FOO_MACRO.
-        (targetBegin = filenameRange.getBegin()).isMacroID() ||
-        (targetEnd = filenameRange.getEnd()).isMacroID() ||
+    // TODO: Come up with some kind of reasonable extent for macro-based
+    // includes, like #include FOO_MACRO.
+    const SourceLocation targetBegin = filenameRange.getBegin();
+    const SourceLocation targetEnd = filenameRange.getEnd();
+    if (targetBegin.isMacroID() || targetEnd.isMacroID())
+      return;
 
-        // TODO: Support generated files once we run the trigram indexer over
-        // them. For now, we skip them.
-        !(source->realname.compare(0, GENERATED.size(), GENERATED)) ||
+    const FileInfoPtr &source = getFileInfo(presumedHashLoc.getFilename());
+    // TODO: Support generated files once we run the trigram indexer over
+    // them. For now, we skip them.
+    if (!(source->realname.compare(0, GENERATED.size(), GENERATED)) ||
         !(target->realname.compare(0, GENERATED.size(), GENERATED)))
       return;
 
@@ -1165,30 +1308,87 @@ public:
 
 };
 
+#if CLANG_AT_LEAST(3, 3)
 void PreprocThunk::MacroDefined(const Token &tok, const MacroDirective *md) {
   real->MacroDefined(tok, md->getMacroInfo());
 }
-void PreprocThunk::MacroExpands(const Token &tok, const MacroDefinition &md,
-                                SourceRange range, const MacroArgs *ma) {
-  real->MacroExpands(tok, md.getMacroInfo(), range);
+  #if CLANG_AT_LEAST(3, 7)
+  void PreprocThunk::MacroExpands(const Token &tok, const MacroDefinition &md,
+                                  SourceRange range, const MacroArgs *ma) {
+    real->MacroExpands(tok, md.getMacroInfo(), range);
+  }
+    #if CLANG_AT_LEAST(5, 0)
+  void PreprocThunk::MacroUndefined(const Token &tok, const MacroDefinition &md,
+                                    const MacroDirective */*Undef*/) {
+    real->MacroUndefined(tok, md.getMacroInfo());
+  }
+    #else
+  void PreprocThunk::MacroUndefined(const Token &tok, const MacroDefinition &md) {
+    real->MacroUndefined(tok, md.getMacroInfo());
+  }
+    #endif
+  void PreprocThunk::Ifdef(SourceLocation loc, const Token &tok,
+                           const MacroDefinition &md) {
+    real->Ifdef(loc, tok, md.getMacroInfo());
+  }
+  void PreprocThunk::Ifndef(SourceLocation loc, const Token &tok,
+                            const MacroDefinition &md) {
+    real->Ifndef(loc, tok, md.getMacroInfo());
+  }
+  #else
+  void PreprocThunk::MacroExpands(const Token &tok, const MacroDirective *md,
+                                  SourceRange range, const MacroArgs *ma) {
+    real->MacroExpands(tok, md->getMacroInfo(), range);
+  }
+  void PreprocThunk::MacroUndefined(const Token &tok, const MacroDirective *md) {
+    real->MacroUndefined(tok, md->getMacroInfo());
+  }
+  void PreprocThunk::Ifdef(SourceLocation loc, const Token &tok,
+                           const MacroDirective *md) {
+    real->Ifdef(loc, tok, md->getMacroInfo());
+  }
+  void PreprocThunk::Ifndef(SourceLocation loc, const Token &tok,
+                            const MacroDirective *md) {
+    real->Ifndef(loc, tok, md->getMacroInfo());
+  }
+  #endif
+  #if CLANG_AT_LEAST(3, 7)
+  void PreprocThunk::Defined(const Token &tok, const MacroDefinition &md,
+                             SourceRange range) {
+    real->Defined(tok, md.getMacroInfo());
+  }
+  #elif CLANG_AT_LEAST(3, 4)
+  void PreprocThunk::Defined(const Token &tok, const MacroDirective *md,
+                             SourceRange) {
+    real->Defined(tok, md->getMacroInfo());
+  }
+  #else
+  void PreprocThunk::Defined(const Token &tok, const MacroDirective *md) {
+    real->Defined(tok, md->getMacroInfo());
+  }
+  #endif
+#else  // clang < 3.3
+void PreprocThunk::MacroDefined(const Token &tok, const MacroInfo *MI) {
+  real->MacroDefined(tok, MI);
 }
-void PreprocThunk::MacroUndefined(const Token &tok, const MacroDefinition &md, const MacroDirective *Undef) {
-  real->MacroUndefined(tok, md.getMacroInfo());
+void PreprocThunk::MacroExpands(const Token &tok, const MacroInfo *MI,
+                                SourceRange Range) {
+  real->MacroExpands(tok, MI, Range);
 }
-void PreprocThunk::Defined(const Token &tok, const MacroDefinition &md,
-                           SourceRange) {
-  real->Defined(tok, md.getMacroInfo());
+void PreprocThunk::MacroUndefined(const Token &tok, const MacroInfo *MI) {
+  real->MacroUndefined(tok, MI);
 }
-void PreprocThunk::Ifdef(SourceLocation loc, const Token &tok,
-                         const MacroDefinition &md) {
-  real->Ifdef(loc, tok, md.getMacroInfo());
+void PreprocThunk::Defined(const Token &tok) {
+  real->Defined(tok, nullptr);
 }
-void PreprocThunk::Ifndef(SourceLocation loc, const Token &tok,
-                          const MacroDefinition &md) {
-  real->Ifndef(loc, tok, md.getMacroInfo());
+void PreprocThunk::Ifdef(SourceLocation loc, const Token &tok) {
+  real->Ifdef(loc, tok, nullptr);
 }
-
-void PreprocThunk::InclusionDirective(  // same in 3.2 and 3.3
+void PreprocThunk::Ifndef(SourceLocation loc, const Token &tok) {
+  real->Ifndef(loc, tok, nullptr);
+}
+#endif
+void PreprocThunk::InclusionDirective(
     SourceLocation hashLoc,
     const Token &includeTok,
     StringRef fileName,
@@ -1206,14 +1406,20 @@ void PreprocThunk::InclusionDirective(  // same in 3.2 and 3.3
 // Our plugin entry point.
 class DXRIndexAction : public PluginASTAction {
 protected:
+#if CLANG_AT_LEAST(3, 6)
   std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                 llvm::StringRef f) override {
+    return std::unique_ptr<ASTConsumer>(new IndexConsumer(CI));
+#else
+  ASTConsumer *CreateASTConsumer(CompilerInstance &CI,
                                  llvm::StringRef f) override {
-    return std::unique_ptr<ASTConsumer> (new IndexConsumer(CI));
+    return new IndexConsumer(CI);
+#endif
   }
 
   bool ParseArgs(const CompilerInstance &CI,
                  const std::vector<std::string>& args) override {
-    if (args.size() != 1) {
+    if (args.empty()) {
       DiagnosticsEngine &D = CI.getDiagnostics();
       unsigned DiagID = D.getCustomDiagID(DiagnosticsEngine::Error,
         "Need an argument for the source directory");
@@ -1222,8 +1428,10 @@ protected:
     }
     // Load our directories.
 
-    // The source directory.
-    char *abs_src = realpath(args[0].c_str(), nullptr);
+    // The source directory. Follow the GCC/Clang convention of picking the
+    // the value of the argument that has been specificed last in the command
+    // line.
+    char *abs_src = realpath(args.back().c_str(), nullptr);
     if (!abs_src) {
       DiagnosticsEngine &D = CI.getDiagnostics();
       unsigned DiagID = D.getCustomDiagID(DiagnosticsEngine::Error,
@@ -1231,7 +1439,7 @@ protected:
       D.Report(DiagID) << args[0];
       return false;
     }
-    FileInfo::srcdir = abs_src;
+    FileInfo::srcdir = std::string(abs_src) + "/";
 
     // The build output directory.
     const char *env = getenv("DXR_CXX_CLANG_OBJECT_FOLDER");
@@ -1253,11 +1461,7 @@ protected:
 
     // The temp directory for this plugin's output.
     const char *tmp = getenv("DXR_CXX_CLANG_TEMP_FOLDER");
-    std::string tmpdir;
-    if (tmp)
-      tmpdir = tmp;
-    else
-      tmpdir = output;
+    std::string tmpdir = tmp ? tmp : output;
     char *abs_tmpdir = realpath(tmpdir.c_str(), nullptr);
     if (!abs_tmpdir) {
       DiagnosticsEngine &D = CI.getDiagnostics();
